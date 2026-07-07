@@ -20,11 +20,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from . import aggregate
-from .ginza_stage import GinzaStats
 from .mecab_stage import MecabStats
+
+if TYPE_CHECKING:
+    from .ginza_stage import GinzaStats
 
 
 def build_stats(

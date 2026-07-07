@@ -16,7 +16,7 @@ import traceback
 from pathlib import Path
 from typing import Dict
 
-from . import __version__, export, ginza_stage, mecab_stage, report_html
+from . import __version__, export, mecab_stage, report_html
 from .progress import Reporter
 from .reader import InputError, collect_files, load_corpus
 
@@ -105,6 +105,8 @@ def run(args: argparse.Namespace) -> int:
 
         # Stage 2: GiNZA --------------------------------------------------
         try:
+            from . import ginza_stage
+
             rep.start_task(t2, total=n_sentences)
             ginza = ginza_stage.run(
                 sentences,

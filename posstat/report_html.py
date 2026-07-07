@@ -12,10 +12,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 from string import Template
-from typing import Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
-from .ginza_stage import GinzaStats
 from .mecab_stage import MecabStats
+
+if TYPE_CHECKING:
+    from .ginza_stage import GinzaStats
 
 
 def _esc(v) -> str:
