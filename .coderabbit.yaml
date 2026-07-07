@@ -1,0 +1,19 @@
+language: ja
+reviews:
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  path_instructions:
+    - path: "posstat/**"
+      instructions: >
+        日本語テキストの形態素・文節統計を集計する CLI ツールです。
+        fugashi(MeCab + unidic-lite)と GiNZA(spaCy)を使用します。
+        Counter ベースの集計精度、PMI 計算の正当性、
+        HTML レポートの self-contained 性に注目してレビューしてください。
+  auto_review:
+    enabled: true
+    drafts: false
+chat:
+  auto_reply: true
