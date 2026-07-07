@@ -34,8 +34,12 @@ def collect_files(corpus_path: str) -> List[Path]:
 
 
 def decode_file(path: Path, encoding_fallback: bool = True) -> Optional[str]:
-    """ファイルをデコードして返す。判定不能なら警告して None(スキップ)。"""
-    raw = path.read_bytes()
+    """ファイルをデコードして返す。判定不能や I/O 失敗なら警告して None(スキップ)。"""
+    try:
+        raw = path.read_bytes()
+    except OSError as e:
+        print(f"警告: ファイルを読めずスキップ: {path} ({e})", file=sys.stderr)
+        return None
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -85,7 +89,11 @@ def load_corpus(
     total_chars = 0
     n_read = 0
     for path in files:
-        size = path.stat().st_size
+        try:
+            size = path.stat().st_size
+        except OSError as e:
+            print(f"警告: ファイル情報を取得できずスキップ: {path} ({e})", file=sys.stderr)
+            continue
         text = decode_file(path, encoding_fallback)
         if text is not None:
             n_read += 1

@@ -30,7 +30,7 @@ def clean_kana(s: str) -> str:
 def token_reading(feature, surface: str) -> str:
     """トークンの仮名(カタカナ)を得る。
 
-    unidic-lite は kana 列を持たないため pron / lForm を順に試し、
+    kana は unidic(フル版)用。unidic-lite では存在しないため pron / lForm にフォールバックする。
     どれも無ければ表層のかなをカタカナ化して使う。
     """
     for attr in ("kana", "pron", "lForm"):

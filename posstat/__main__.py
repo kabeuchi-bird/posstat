@@ -72,7 +72,11 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     with Reporter(log_interval=log_interval) as rep:
-        total_bytes = sum(f.stat().st_size for f in files)
+        try:
+            total_bytes = sum(f.stat().st_size for f in files)
+        except OSError as e:
+            print(f"入力エラー: ファイル情報の取得に失敗: {e}", file=sys.stderr)
+            return 1
         t0 = rep.add_task("Stage 0: 読込・文分割", total=total_bytes)
         t1 = rep.add_task("Stage 1: 形態素解析", total=None, start=False)
         t2 = rep.add_task("Stage 2: 文節・係り受け", total=None, start=False)

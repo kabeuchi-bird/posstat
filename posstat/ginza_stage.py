@@ -13,6 +13,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
+import ginza
+
 from .mecab_stage import clean_kana, hira_to_kata
 
 
@@ -53,8 +55,6 @@ def _token_kana(token) -> str:
 
 
 def _accumulate(stats: GinzaStats, doc) -> None:
-    import ginza
-
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
@@ -98,11 +98,13 @@ def run(
     try:
         nlp = spacy.load(model)
     except Exception as e:  # noqa: BLE001
+        from confection._errors import ConfigValidationError
+
+        if not isinstance(e, ConfigValidationError) or "split_mode" not in str(e):
+            raise
         # ja_ginza の config は compound_splitter の split_mode を null で持つが、
         # 新しめの confection/pydantic はこれを str として厳格に検証して弾く。
         # その場合のみ GiNZA 既定の分割モード "C" を明示して再ロードする。
-        if "split_mode" not in str(e):
-            raise
         nlp = spacy.load(
             model,
             config={"components": {"compound_splitter": {"split_mode": "C"}}},
