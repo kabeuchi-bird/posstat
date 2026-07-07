@@ -1,0 +1,19 @@
+# posstat 設定ファイル(省略時は下記の既定値で動作)
+
+[input]
+encoding_fallback = true   # UTF-8失敗時に charset-normalizer で判定
+
+[ginza]
+model = "ja_ginza"         # "ja_ginza_electra" に切替可
+batch_size = 128
+n_process = 0              # 0 = cpu_count - 1
+
+[analysis]
+min_count = 10             # PMI判定の信頼性下限: P(x)P(y)×総数 >= min_count
+pmi_threshold = -3.0       # これ以下を「後には来ない」候補に
+
+[report]
+heatmap = true             # matplotlib 導入時のみ有効
+
+[progress]
+log_interval = 30          # 非TTY時の行ログ間隔(秒)
