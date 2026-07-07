@@ -93,13 +93,22 @@ def run(
     nlp.pipe() はイテレータなので、消費側ループで文数をカウントして
     そのまま進捗を更新する。
     """
-    import spacy
+    try:
+        import spacy
+    except ImportError as e:
+        raise ImportError(
+            f"spacy を読み込めません: {e}\n"
+            "  pip install ja-ginza  で spacy と関連パッケージを導入してください。\n"
+            "  click が無い場合は  pip install click  も実行してください。"
+        ) from e
 
     try:
         nlp = spacy.load(model)
     except Exception as e:  # noqa: BLE001
-        from confection._errors import ConfigValidationError
-
+        try:
+            from confection._errors import ConfigValidationError
+        except ImportError:
+            raise e from None
         if not isinstance(e, ConfigValidationError) or "split_mode" not in str(e):
             raise
         # ja_ginza の config は compound_splitter の split_mode を null で持つが、
@@ -111,8 +120,14 @@ def run(
         )
     nproc = default_n_process(n_process)
     stats = GinzaStats()
-    for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
-        _accumulate(stats, doc)
-        if on_progress:
-            on_progress(1)
+    try:
+        for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
+            _accumulate(stats, doc)
+            if on_progress:
+                on_progress(1)
+    except BrokenPipeError:
+        raise RuntimeError(
+            f"GiNZA の子プロセスが異常終了しました (n_process={nproc})。\n"
+            "  config.toml で [ginza] n_process = 1 にして再実行してください。"
+        )
     return stats
