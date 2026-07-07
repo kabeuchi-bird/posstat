@@ -171,7 +171,7 @@ fugashi[unidic-lite]
 ja_ginza  (spacy 同時導入)
 rich
 charset-normalizer
-matplotlib   # optional (heatmap)
+matplotlib   # heatmap 用(必須)
 ```
 
 全依存にWin/mac/Linuxのwheelあり。導入は `pip install -e .` のみ。

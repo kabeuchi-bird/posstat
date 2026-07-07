@@ -18,13 +18,11 @@ Python 3.9 以上。
 
 ```bash
 pip install -e .
-
-# heatmap(品詞遷移行列の画像)も出す場合
-pip install -e ".[heatmap]"
 ```
 
 これで fugashi(unidic-lite 同梱)、ja_ginza(spacy 同時導入)、rich、
-charset-normalizer が入ります。matplotlib は任意です(未導入時は heatmap を自動スキップ)。
+charset-normalizer、matplotlib がすべて入ります。追加の選択は不要です。
+heatmap が不要な場合は config.toml の `[report] heatmap = false` で無効化できます。
 
 ## 使い方
 
@@ -66,7 +64,7 @@ min_count = 10             # PMI 判定の信頼性下限: P(x)P(y)×総数 >= m
 pmi_threshold = -3.0       # これ以下を「後には来ない」候補に
 
 [report]
-heatmap = true             # matplotlib 導入時のみ有効
+heatmap = true             # false で品詞遷移行列の heatmap を省略
 
 [progress]
 log_interval = 30          # 非TTY時の行ログ間隔(秒)

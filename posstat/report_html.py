@@ -2,7 +2,7 @@
 
 - テンプレート: 標準 string.Template(jinja2 不要)
 - 表: 素の JS 数十行でクリックソート + テキストフィルタ。min_count で切らず全量掲載
-- heatmap: matplotlib → PNG → base64 埋め込み(config で off 可、未導入なら自動スキップ)
+- heatmap: matplotlib(必須依存)→ PNG → base64 埋め込み(config で off 可)
 """
 
 from __future__ import annotations
@@ -72,14 +72,19 @@ def _matrix_table(matrix: Dict[str, Dict[str, float]], table_id: str, limit: int
 
 
 def _heatmap_png(matrix: Dict[str, Dict[str, float]], title: str) -> Optional[str]:
-    """遷移行列の heatmap を base64 PNG で返す。matplotlib 未導入なら None。"""
+    """遷移行列の heatmap を base64 PNG で返す。
+
+    matplotlib は必須依存だが、万一インポートできない環境でも
+    解析結果(表・JSON)を失わないよう heatmap だけスキップして続行する。
+    """
     try:
         import matplotlib
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print("警告: matplotlib 未導入のため heatmap をスキップします", file=sys.stderr)
+        print("警告: 必須依存 matplotlib を読み込めません。heatmap を省略します。"
+              "`pip install -e .` でインストールを修復してください", file=sys.stderr)
         return None
     import base64
     import io

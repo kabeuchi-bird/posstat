@@ -14,11 +14,9 @@ dependencies = [
     "ja-ginza",
     "rich",
     "charset-normalizer",
+    "matplotlib",
     "tomli; python_version < '3.11'",
 ]
-
-[project.optional-dependencies]
-heatmap = ["matplotlib"]
 
 [project.scripts]
 posstat = "posstat.__main__:main"
