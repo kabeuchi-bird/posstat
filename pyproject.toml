@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "posstat"
+version = "0.1.0"
+description = "日本語コーパスの品詞・カナ・文節統計を集計し、HTMLレポートとJSONを出力するCLI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+dependencies = [
+    "fugashi[unidic-lite]",
+    "ja-ginza",
+    "rich",
+    "charset-normalizer",
+    "matplotlib",
+    "tomli; python_version < '3.11'",
+]
+
+[project.scripts]
+posstat = "posstat.__main__:main"
+
+[tool.setuptools]
+packages = ["posstat"]
