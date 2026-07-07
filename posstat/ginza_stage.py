@@ -13,8 +13,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
-import ginza
-
 from .mecab_stage import clean_kana, hira_to_kata
 
 
@@ -55,6 +53,8 @@ def _token_kana(token) -> str:
 
 
 def _accumulate(stats: GinzaStats, doc) -> None:
+    import ginza  # spacy/ginza は重量級のため Stage 2 実行時まで遅延
+
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
