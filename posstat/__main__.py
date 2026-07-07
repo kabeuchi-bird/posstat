@@ -106,7 +106,15 @@ def run(args: argparse.Namespace) -> int:
         # Stage 2: GiNZA --------------------------------------------------
         try:
             from . import ginza_stage
-
+        except ImportError:
+            print(
+                "解析エラー (Stage 2): ginza_stage モジュールの読み込みに失敗しました。\n"
+                "  pip install ja-ginza  で GiNZA と依存パッケージを導入してください。",
+                file=sys.stderr,
+            )
+            traceback.print_exc()
+            return 2
+        try:
             rep.start_task(t2, total=n_sentences)
             ginza = ginza_stage.run(
                 sentences,
@@ -116,6 +124,13 @@ def run(args: argparse.Namespace) -> int:
                 on_progress=lambda n: rep.advance(t2, n),
             )
             rep.finish(t2)
+        except ImportError as e:
+            print(
+                f"解析エラー (Stage 2 / GiNZA): 依存パッケージが不足しています。\n  {e}\n"
+                "  pip install ja-ginza click  を実行してください。",
+                file=sys.stderr,
+            )
+            return 2
         except Exception:
             print("解析エラー (Stage 2 / GiNZA):", file=sys.stderr)
             traceback.print_exc()
