@@ -26,6 +26,17 @@ pip install -e .
 charset-normalizer、matplotlib がすべて入ります。追加の選択は不要です。
 heatmap が不要な場合は config.toml の `[report] heatmap = false` で無効化できます。
 
+### 使用ライブラリ
+
+- **fugashi** — MeCab の Python バインディング。Stage 1 の形態素解析に使用
+- **unidic-lite** — fugashi 用の軽量 UniDic 辞書。pip だけで入り追加ダウンロード不要
+- **ja-ginza (GiNZA)** — spaCy ベースの日本語 NLP。Stage 2 の文節・係り受け・「繋ぎの語」判定に使用
+- **spacy** — GiNZA の土台となる NLP フレームワーク(ja-ginza と同時に導入される)
+- **rich** — ターミナルのプログレスバー表示(非TTY では行ログに自動フォールバック)
+- **charset-normalizer** — UTF-8 でデコードできないファイルのエンコーディング推定
+- **matplotlib** — 品詞遷移行列 heatmap の PNG 描画(HTML に base64 埋め込み)
+- **tomli** — Python 3.10 以前での config.toml 読込(3.11+ は標準 tomllib を使用)
+
 > **注意**: Arch Linux など PEP 668 準拠の環境ではシステム Python への直接インストールが
 > 拒否されます。必ず venv を作成してからインストールしてください。
 
