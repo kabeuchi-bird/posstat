@@ -44,29 +44,35 @@ def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> s
     )
 
 
-def _counter_rows(counter: Counter, ratio: bool = True, limit: Optional[int] = None) -> List[List]:
+def _counter_rows(counter: Counter, limit: Optional[int] = None) -> List[List]:
     total = sum(counter.values()) or 1
     rows = []
     for key, count in counter.most_common(limit):
         cols = list(key) if isinstance(key, tuple) else [key]
         cols.append(count)
-        if ratio:
-            cols.append(count / total)
+        cols.append(count / total)
         rows.append(cols)
     return rows
 
 
-# 3-gram はキー空間が広く全量掲載すると HTML が肥大するため上位のみ載せる
-_TRIGRAM_LIMIT = 3000
+# キー空間が広い表(3-gram・チャンク頻度)は全量掲載すると HTML が肥大するため
+# 上位のみ載せる。全量は stats.json 側にある
+_TABLE_ROW_LIMIT = 3000
+
+_STAGE2_NOTE = "<p class=\"note\">Stage 2(GiNZA)が実行されていません。</p>"
+
+
+def _limit_note(counter: Counter) -> str:
+    if len(counter) <= _TABLE_ROW_LIMIT:
+        return ""
+    return (f"<p class=\"note\">上位 {_TABLE_ROW_LIMIT} 件のみ表示"
+            f"(全 {len(counter)} 種)。全量は stats.json を参照。</p>")
 
 
 def _trigram_table(counter: Counter, table_id: str) -> str:
-    note = ""
-    if len(counter) > _TRIGRAM_LIMIT:
-        note = (f"<p class=\"note\">上位 {_TRIGRAM_LIMIT} 件のみ表示"
-                f"(全 {len(counter)} 種)。全量は stats.json を参照。</p>")
-    return note + _table(["カナ1", "カナ2", "カナ3", "頻度", "比率"],
-                         _counter_rows(counter, limit=_TRIGRAM_LIMIT), table_id)
+    return _limit_note(counter) + _table(["カナ1", "カナ2", "カナ3", "頻度", "比率"],
+                                         _counter_rows(counter, limit=_TABLE_ROW_LIMIT),
+                                         table_id)
 
 
 def _matrix_table(matrix: Dict[str, Dict[str, float]], table_id: str, limit: int = 40) -> str:
@@ -268,7 +274,7 @@ def render(
     # 8. 文節統計
     parts.append("<h2>8. 文節統計</h2>")
     if ginza is None:
-        parts.append("<p class=\"note\">Stage 2(GiNZA)が実行されていません。</p>")
+        parts.append(_STAGE2_NOTE)
     else:
         parts.append("<h3>文節頭カナ</h3>")
         parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_head_kana), "t-bhead"))
@@ -290,14 +296,12 @@ def render(
                      "および前文節尻1カナ+後文節頭2カナの両方を数える。</p>")
         parts.append(_trigram_table(ginza.kana_trigram_cross_bunsetsu, "t-bcross3"))
         parts.append("<h3>文節先頭品詞の遷移</h3>")
-        from .aggregate import row_normalize
-
-        parts.append(_matrix_table(row_normalize(ginza.bunsetsu_head_pos_transition), "t-bpos"))
+        parts.append(_matrix_table(stats_json["bunsetsu_head_pos_transition"], "t-bpos"))
 
     # 9. 係り受けラベル頻度
     parts.append("<h2>9. 係り受けラベル頻度</h2>")
     if ginza is None:
-        parts.append("<p class=\"note\">Stage 2(GiNZA)が実行されていません。</p>")
+        parts.append(_STAGE2_NOTE)
     else:
         parts.append(_table(["depラベル", "係り元品詞", "係り先品詞", "頻度", "比率"],
                             _counter_rows(ginza.dep_pos_pairs), "t-dep"))
@@ -313,7 +317,7 @@ def render(
     # 11. 「繋ぎの語」チャンク分析
     parts.append("<h2>11. 「繋ぎの語」チャンク分析</h2>")
     if ginza is None:
-        parts.append("<p class=\"note\">Stage 2(GiNZA)が実行されていません。</p>")
+        parts.append(_STAGE2_NOTE)
     else:
         parts.append(
             "<p class=\"note\">大岡俊彦氏の抽出ルール(deprel: case/mark/aux/cop/cc/"
@@ -321,8 +325,9 @@ def render(
             "「繋ぎの語」か判定し、連続する繋ぎ語を膠着させて1塊(チャンク)として扱う。"
             "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
         parts.append("<h3>繋ぎチャンク頻度(連結カナ)</h3>")
+        parts.append(_limit_note(ginza.tsunagi_chunk_freq))
         parts.append(_table(["チャンク(カナ)", "頻度", "比率"],
-                            _counter_rows(ginza.tsunagi_chunk_freq, limit=_TRIGRAM_LIMIT),
+                            _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT),
                             "t-tsunagi-freq"))
         parts.append("<h3>繋ぎチャンク内カナ2-gram</h3>")
         parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],

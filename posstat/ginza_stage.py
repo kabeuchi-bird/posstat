@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
-from .mecab_stage import clean_kana, hira_to_kata
+from .mecab_stage import add_ngrams, clean_kana, hira_to_kata
 
 # ---------------------------------------------------------------------------
 # 「繋ぎの語」抽出ルール(大岡俊彦氏)。token.dep_ / pos_ / lemma_ で判定する。
@@ -135,9 +135,10 @@ def _token_kana(token) -> str:
     return clean_kana(hira_to_kata(token.text))
 
 
-def _sent_chunks(sent) -> list:
+def _sent_chunks(sent, kanas: Sequence[str]) -> list:
     """文を「繋ぎ」/「内容」チャンクの列に分割する。
 
+    kanas は sent の各トークンの読み(文先頭からの位置で対応)。
     連続する同種トークンを膠着させて1塊とし、(種別, 連結カナ) のリストを返す。
     句読点・記号・空白はチャンク境界として働き、どちらの塊にも含めない。
     """
@@ -155,7 +156,7 @@ def _sent_chunks(sent) -> list:
             if cur_type is not None and cur_kana:
                 chunks.append((cur_type, cur_kana))
             cur_type, cur_kana = typ, ""
-        cur_kana += _token_kana(token)
+        cur_kana += kanas[token.i - sent.start]
     if cur_type is not None and cur_kana:
         chunks.append((cur_type, cur_kana))
     return chunks
@@ -170,51 +171,43 @@ def _cross_ngrams(stats_bigram: Counter, stats_trigram: Counter, r: str, s: str)
         stats_trigram[(r[-1], s[0], s[1])] += 1
 
 
-def _accumulate(stats: GinzaStats, doc) -> None:
-    import ginza  # spacy/ginza は重量級のため Stage 2 実行時まで遅延
-
+def _accumulate(stats: GinzaStats, doc, bunsetu_spans) -> None:
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
             head = token.head
             stats.dep_pos_pairs[(token.dep_, token.pos_, head.pos_)] += 1
-        spans = ginza.bunsetu_spans(sent)
+        kanas = [_token_kana(t) for t in sent]  # 読みの導出は1トークン1回
+        spans = bunsetu_spans(sent)
         stats.n_bunsetsu += len(spans)
         readings = []
         head_pos_seq = []
         for span in spans:
             stats.bunsetsu_len_dist[len(span.text)] += 1
             head_pos_seq.append(span[0].pos_)
-            kana = "".join(_token_kana(t) for t in span)
+            kana = "".join(kanas[t.i - sent.start] for t in span)
             readings.append(kana)
             if kana:
                 stats.bunsetsu_head_kana[kana[0]] += 1
                 stats.bunsetsu_tail_kana[kana[-1]] += 1
-                for a, b in zip(kana, kana[1:]):
-                    stats.kana_bigram_within_bunsetsu[(a, b)] += 1
-                for a, b, c in zip(kana, kana[1:], kana[2:]):
-                    stats.kana_trigram_within_bunsetsu[(a, b, c)] += 1
+                add_ngrams(kana, stats.kana_bigram_within_bunsetsu,
+                           stats.kana_trigram_within_bunsetsu)
         for r, s in zip(readings, readings[1:]):
             if r and s:
                 _cross_ngrams(stats.kana_bigram_cross_bunsetsu,
                               stats.kana_trigram_cross_bunsetsu, r, s)
-        for a, b in zip(head_pos_seq, head_pos_seq[1:]):
-            stats.bunsetsu_head_pos_transition[(a, b)] += 1
+        add_ngrams(head_pos_seq, stats.bunsetsu_head_pos_transition)
 
         # 「繋ぎの語」チャンク統計
-        chunks = _sent_chunks(sent)
+        chunks = _sent_chunks(sent, kanas)
         for typ, kana in chunks:
             if typ == "tsunagi":
                 stats.tsunagi_chunk_freq[kana] += 1
-                bi, tri = (stats.kana_bigram_within_tsunagi,
+                add_ngrams(kana, stats.kana_bigram_within_tsunagi,
                            stats.kana_trigram_within_tsunagi)
             else:
-                bi, tri = (stats.kana_bigram_within_content,
+                add_ngrams(kana, stats.kana_bigram_within_content,
                            stats.kana_trigram_within_content)
-            for a, b in zip(kana, kana[1:]):
-                bi[(a, b)] += 1
-            for a, b, c in zip(kana, kana[1:], kana[2:]):
-                tri[(a, b, c)] += 1
         for (_, r), (_, s) in zip(chunks, chunks[1:]):
             _cross_ngrams(stats.kana_bigram_cross_chunk,
                           stats.kana_trigram_cross_chunk, r, s)
@@ -257,11 +250,13 @@ def run(
             model,
             config={"components": {"compound_splitter": {"split_mode": "C"}}},
         )
+    from ginza import bunsetu_spans  # 重量級のため Stage 2 実行時まで遅延
+
     nproc = default_n_process(n_process)
     stats = GinzaStats()
     try:
         for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
-            _accumulate(stats, doc)
+            _accumulate(stats, doc, bunsetu_spans)
             if on_progress:
                 on_progress(1)
     except BrokenPipeError:

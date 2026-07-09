@@ -27,6 +27,15 @@ def clean_kana(s: str) -> str:
     return "".join(c for c in s if _is_kana(c))
 
 
+def add_ngrams(seq: Sequence, bigram: Counter, trigram: Optional[Counter] = None) -> None:
+    """列の隣接2-gram(trigram 指定時は3-gramも)を Counter に積む。"""
+    for a, b in zip(seq, seq[1:]):
+        bigram[(a, b)] += 1
+    if trigram is not None:
+        for a, b, c in zip(seq, seq[1:], seq[2:]):
+            trigram[(a, b, c)] += 1
+
+
 def token_reading(feature, surface: str) -> str:
     """トークンの仮名(カタカナ)を得る。
 
@@ -95,10 +104,9 @@ def _accumulate(stats: MecabStats, tokens: Sequence[Token]) -> None:
         if kana:
             stats.head_kana_by_pos[(pos1, kana[0])] += 1
             stats.tail_kana_by_pos[(pos1, kana[-1])] += 1
-            for a, b in zip(kana, kana[1:]):
-                stats.kana_bigram_within[(a, b)] += 1
-        # 記号前後の統計
-        if surface and set(surface) <= SYMBOLS:
+            add_ngrams(kana, stats.kana_bigram_within)
+        # 記号前後の統計(先頭1文字の判定で大多数のトークンの set 生成を回避)
+        if surface and surface[0] in SYMBOLS and set(surface) <= SYMBOLS:
             sym = surface[0]
             if i > 0:
                 p_pos, _, _, _, p_kana = tokens[i - 1]
@@ -111,11 +119,7 @@ def _accumulate(stats: MecabStats, tokens: Sequence[Token]) -> None:
                 if n_kana:
                     stats.symbol_next_kana[(sym, n_kana[0])] += 1
     # n-gram(大分類)と境界跨ぎカナ
-    pos_seq = [t[0] for t in tokens]
-    for a, b in zip(pos_seq, pos_seq[1:]):
-        stats.pos_bigram[(a, b)] += 1
-    for a, b, c in zip(pos_seq, pos_seq[1:], pos_seq[2:]):
-        stats.pos_trigram[(a, b, c)] += 1
+    add_ngrams([t[0] for t in tokens], stats.pos_bigram, stats.pos_trigram)
     for t, u in zip(tokens, tokens[1:]):
         if t[4] and u[4]:
             stats.kana_bigram_cross[(t[4][-1], u[4][0])] += 1

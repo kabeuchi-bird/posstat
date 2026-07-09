@@ -105,6 +105,7 @@ Rust 側から serde で読む前提の構造:
   "forbidden_pairs": [{"a": "ヲ", "b": "ヲ", "pmi": -8.2, "expected": 42.0}],
   "bunsetsu_head_kana": {},
   "bunsetsu_tail_kana": {},
+  "bunsetsu_head_pos_transition": {"NOUN": {"VERB": 0.31}},
   "kana_bigram_within_bunsetsu": {"ア": {"イ": 0.42}},
   "kana_bigram_cross_bunsetsu": {},
   "kana_trigram_within_bunsetsu": {"ア": {"イ": {"ウ": 0.03}}},

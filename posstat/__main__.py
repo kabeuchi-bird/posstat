@@ -143,11 +143,11 @@ def run(args: argparse.Namespace) -> int:
             ginza,
             total_chars=total_chars,
             n_sentences=n_sentences,
+            n_files=n_read,
+            model=cfg["ginza"]["model"],
             pmi_threshold=cfg["analysis"]["pmi_threshold"],
             min_count=cfg["analysis"]["min_count"],
         )
-        stats["meta"]["files"] = n_read
-        stats["meta"]["model"] = cfg["ginza"]["model"]
         rep.advance(t3)
         json_path = export.write_json(stats, out_dir)
         rep.advance(t3)
