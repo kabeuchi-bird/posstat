@@ -9,10 +9,24 @@ Rust 側(tsuki_optimizer / MzKana)から serde で読む前提の構造:
   "kana_bigram_cross_boundary": {...},
   "forbidden_pairs": [{"a": "ヲ", "b": "ヲ", "pmi": -8.2}, ...],
   "bunsetsu_head_kana": {...},
-  "bunsetsu_tail_kana": {...}
+  "bunsetsu_tail_kana": {...},
+  "kana_bigram_within_bunsetsu": {"ア": {"イ": 0.42, ...}, ...},
+  "kana_bigram_cross_bunsetsu": {...},
+  "kana_trigram_within_bunsetsu": {"ア": {"イ": {"ウ": 0.03, ...}, ...}, ...},
+  "kana_trigram_cross_bunsetsu": {...},
+  "tsunagi_chunk_freq": {"テイル": 0.02, ...},
+  "kana_bigram_within_tsunagi": {...},
+  "kana_trigram_within_tsunagi": {...},
+  "kana_bigram_within_content": {...},
+  "kana_trigram_within_content": {...},
+  "kana_bigram_cross_chunk": {...},
+  "kana_trigram_cross_chunk": {...}
 }
 
-forbidden_pairs の pmi は観測ゼロのとき null(Rust 側は Option<f64>)。
+- 2-gram 系は {先行: {後続: P(後続|先行)}}、3-gram 系は {a: {b: {c: P(c|a,b)}}}
+- tsunagi 系は「繋ぎの語」チャンク(連続する繋ぎ語を膠着させた1塊)内の連接、
+  content 系はそれ以外の内容チャンク内、cross_chunk はチャンク境界跨ぎ
+- forbidden_pairs の pmi は観測ゼロのとき null(Rust 側は Option<f64>)
 """
 
 from __future__ import annotations
@@ -53,10 +67,42 @@ def build_stats(
         "forbidden_pairs": aggregate.forbidden_pairs(adjacency, pmi_threshold, min_count),
         "bunsetsu_head_kana": {},
         "bunsetsu_tail_kana": {},
+        "kana_bigram_within_bunsetsu": {},
+        "kana_bigram_cross_bunsetsu": {},
+        "kana_trigram_within_bunsetsu": {},
+        "kana_trigram_cross_bunsetsu": {},
+        "tsunagi_chunk_freq": {},
+        "kana_bigram_within_tsunagi": {},
+        "kana_trigram_within_tsunagi": {},
+        "kana_bigram_within_content": {},
+        "kana_trigram_within_content": {},
+        "kana_bigram_cross_chunk": {},
+        "kana_trigram_cross_chunk": {},
     }
     if ginza is not None:
         stats["bunsetsu_head_kana"] = aggregate.distribution(ginza.bunsetsu_head_kana)
         stats["bunsetsu_tail_kana"] = aggregate.distribution(ginza.bunsetsu_tail_kana)
+        stats["kana_bigram_within_bunsetsu"] = aggregate.row_normalize(
+            ginza.kana_bigram_within_bunsetsu)
+        stats["kana_bigram_cross_bunsetsu"] = aggregate.row_normalize(
+            ginza.kana_bigram_cross_bunsetsu)
+        stats["kana_trigram_within_bunsetsu"] = aggregate.row_normalize_trigram(
+            ginza.kana_trigram_within_bunsetsu)
+        stats["kana_trigram_cross_bunsetsu"] = aggregate.row_normalize_trigram(
+            ginza.kana_trigram_cross_bunsetsu)
+        stats["tsunagi_chunk_freq"] = aggregate.distribution(ginza.tsunagi_chunk_freq)
+        stats["kana_bigram_within_tsunagi"] = aggregate.row_normalize(
+            ginza.kana_bigram_within_tsunagi)
+        stats["kana_trigram_within_tsunagi"] = aggregate.row_normalize_trigram(
+            ginza.kana_trigram_within_tsunagi)
+        stats["kana_bigram_within_content"] = aggregate.row_normalize(
+            ginza.kana_bigram_within_content)
+        stats["kana_trigram_within_content"] = aggregate.row_normalize_trigram(
+            ginza.kana_trigram_within_content)
+        stats["kana_bigram_cross_chunk"] = aggregate.row_normalize(
+            ginza.kana_bigram_cross_chunk)
+        stats["kana_trigram_cross_chunk"] = aggregate.row_normalize_trigram(
+            ginza.kana_trigram_cross_chunk)
     return stats
 
 

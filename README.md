@@ -82,8 +82,15 @@ log_interval = 30          # 非TTY時の行ログ間隔(秒)
 自己完結型 HTML 1 ファイル。表はクリックでソート、テキストフィルタ付き。
 構成: 1. コーパス概要 / 2. 品詞頻度(大・細分類) / 3. 品詞遷移確率行列(heatmap + 表) /
 4. 品詞3-gram / 5. 活用形分布 / 6. 品詞ごとの頭尾カナ / 7. 記号前後統計 /
-8. 文節統計(境界カナ・文節長・文節頭品詞遷移) / 9. 係り受けラベル頻度 /
-10. 「絶対来ない」ペア(PMI 下位)
+8. 文節統計(境界カナ・文節長・文節内/境界跨ぎカナ2-gram/3-gram・文節頭品詞遷移) /
+9. 係り受けラベル頻度 / 10. 「絶対来ない」ペア(PMI 下位) /
+11. 「繋ぎの語」チャンク分析
+
+セクション 11 は大岡俊彦氏の抽出ルール(deprel: case/mark/aux/cop/cc/discourse/fixed、
+指示代名詞、形式名詞、接続副詞、補助動詞)で「繋ぎの語」を判定し、連続する繋ぎ語が
+膠着した全体を 1 塊(チャンク)として、繋ぎ/内容それぞれのチャンク内カナ 2-gram・3-gram
+とチャンク境界跨ぎの連接を集計します。3-gram 表は上位 3000 件のみ HTML に掲載し、
+全量は stats.json に出力します。
 
 ### stats.json
 
@@ -97,11 +104,25 @@ Rust 側から serde で読む前提の構造:
   "kana_bigram_cross_boundary": {},
   "forbidden_pairs": [{"a": "ヲ", "b": "ヲ", "pmi": -8.2, "expected": 42.0}],
   "bunsetsu_head_kana": {},
-  "bunsetsu_tail_kana": {}
+  "bunsetsu_tail_kana": {},
+  "kana_bigram_within_bunsetsu": {"ア": {"イ": 0.42}},
+  "kana_bigram_cross_bunsetsu": {},
+  "kana_trigram_within_bunsetsu": {"ア": {"イ": {"ウ": 0.03}}},
+  "kana_trigram_cross_bunsetsu": {},
+  "tsunagi_chunk_freq": {"テイル": 0.02},
+  "kana_bigram_within_tsunagi": {},
+  "kana_trigram_within_tsunagi": {},
+  "kana_bigram_within_content": {},
+  "kana_trigram_within_content": {},
+  "kana_bigram_cross_chunk": {},
+  "kana_trigram_cross_chunk": {}
 }
 ```
 
-- 遷移系は行方向正規化した確率(`P(次 | 前)`)
+- 遷移系は行方向正規化した確率(`P(次 | 前)`)。3-gram 系は `{a: {b: {c: P(c|a,b)}}}`
+- `tsunagi` 系は「繋ぎの語」チャンク内、`content` 系は内容チャンク内、
+  `cross_chunk` はチャンク境界跨ぎの連接
+- 境界跨ぎ 3-gram は「前尻2+後頭1」「前尻1+後頭2」の両方を数える
 - `forbidden_pairs` の `pmi` は観測ゼロのとき `null`(Rust 側は `Option<f64>`)
 
 ## モジュール構成
