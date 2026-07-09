@@ -25,6 +25,19 @@ def row_normalize(pair_counter: Counter) -> Dict[str, Dict[str, float]]:
     return result
 
 
+def row_normalize_trigram(trigram_counter: Counter) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """(a, b, c) -> count の Counter を {a: {b: {c: P(c|a,b)}}} に正規化する。"""
+    groups: Dict[Tuple[str, str], Counter] = {}
+    for (a, b, c), cnt in trigram_counter.items():
+        groups.setdefault((a, b), Counter())[c] += cnt
+    result: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for (a, b), row in groups.items():
+        total = sum(row.values())
+        inner = {c: cnt / total for c, cnt in sorted(row.items(), key=lambda kv: -kv[1])}
+        result.setdefault(a, {})[b] = inner
+    return result
+
+
 def distribution(counter: Counter) -> Dict[str, float]:
     """単純な Counter を確率分布に正規化する。"""
     total = sum(counter.values())
