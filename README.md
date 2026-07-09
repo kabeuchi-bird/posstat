@@ -1,7 +1,6 @@
 # posstat
 
-日本語コーパス(.txt)の品詞・カナ・文節統計を集計し、自己完結型の HTML レポートと
-Rust 側(tsuki_optimizer / MzKana)向け JSON を出力するクロスプラットフォーム CLI です。
+日本語コーパス(.txt)の品詞・カナ・文節統計を集計し、自己完結型の HTML レポートと JSON を出力するクロスプラットフォーム CLI です。
 設計の詳細は [posstat_design.md](posstat_design.md) を参照してください。
 
 - **Stage 0**: 走査・デコード(UTF-8 既定、失敗時 charset-normalizer)・正規表現による文分割
