@@ -9,8 +9,14 @@ reviews:
     - path: "posstat/**"
       instructions: >
         日本語テキストの形態素・文節統計を集計する CLI ツールです。
-        fugashi(MeCab + unidic-lite)と GiNZA(spaCy)を使用します。
-        Counter ベースの集計精度、PMI 計算の正当性、
+        fugashi(MeCab + unidic-lite)による Stage 1 と、
+        GiNZA(spaCy)による文節・係り受け解析の Stage 2 で構成されます。
+        Stage 2 では token.dep_ / pos_ / lemma_ に基づき「繋ぎの語」
+        (格助詞・接続助詞・助動詞・指示代名詞・形式名詞・接続副詞・補助動詞等)
+        を判定し、連続する繋ぎ語を1チャンクとして膠着させてカナ n-gram を
+        集計します(is_tsunagi / _sent_chunks)。
+        Counter ベースの集計精度、n-gram 境界跨ぎの計算の正当性、
+        PMI 計算の正当性、stats.json のスキーマ整合性、
         HTML レポートの self-contained 性に注目してレビューしてください。
   auto_review:
     enabled: true
