@@ -49,6 +49,8 @@ python -m posstat CORPUS_PATH [-c config.toml] [-o output/]
 - `-c/--config`: 設定ファイル(省略時は既定値で動作)
 - `-o/--output`: 出力ディレクトリ(既定: `output/`)
 - `--log-interval N`: 非TTY時の行ログ間隔(秒)
+- `--dump-tsunagi-text`: 「繋ぎの語」チャンクをカナ表記、それ以外を `□` で潰したテキストを
+  `output/tsunagi_masked.txt` に文単位で出力(Stage 2 実行時のみ)。判定ルールの目視確認用
 
 exit code: `0` = 成功, `1` = 入力エラー, `2` = 解析エラー。
 
