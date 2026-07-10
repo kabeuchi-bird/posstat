@@ -59,14 +59,18 @@ CONJUNCTIVE_ADVERB_LEMMAS = frozenset({
 
 # 5. 補助動詞(本動詞に後接して文法的機能を担う)。
 #    deprel=advcl/compound の主要部側に立つため deprel だけでは漏れる。
-#    なる・するは本動詞用法も多いため、直前トークンが「て」「で」「に」の
-#    場合のみ繋ぎと判定する(他の補助動詞も同条件で絞る)。
+#    直前トークンが「て」「で」「に」の場合のみ繋ぎと判定する。
+#    なる・するは本動詞用法が多く誤判定を招くためこのルールから除外する。
 AUXILIARY_VERB_LEMMAS = frozenset({
     "しまう", "いく", "くる", "おく", "みる", "いる", "ある",
     "もらう", "くれる", "あげる", "くださる", "いただく",
-    "なる", "する",
 })
 _AUX_PREV_LEMMAS = frozenset({"て", "で", "に"})
+
+# 6. 指示代名詞に直接後接する「いう」「した」(こういう・そうした 等)。
+#    「した」は し(VERB, lemma する) + た(AUX) に分割されるため、
+#    lemma が「する」の場合を対象にする。
+_DEMONSTRATIVE_FOLLOW_VERB_LEMMAS = frozenset({"いう", "する"})
 
 # 句読点・記号・空白はどちらのチャンクにも属さず、チャンク境界として働く
 _CHUNK_BOUNDARY_POS = frozenset({"PUNCT", "SYM", "SPACE"})
@@ -84,6 +88,9 @@ def is_tsunagi(token) -> bool:
         return True
     if token.pos_ == "VERB" and token.lemma_ in AUXILIARY_VERB_LEMMAS:
         if token.i > token.sent.start and token.nbor(-1).lemma_ in _AUX_PREV_LEMMAS:
+            return True
+    if token.pos_ == "VERB" and token.lemma_ in _DEMONSTRATIVE_FOLLOW_VERB_LEMMAS:
+        if token.i > token.sent.start and token.nbor(-1).lemma_ in DEMONSTRATIVE_LEMMAS:
             return True
     return False
 
