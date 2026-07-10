@@ -320,7 +320,7 @@ def render(
         parts.append(_STAGE2_NOTE)
     else:
         parts.append(
-            "<p class=\"note\">大岡俊彦氏の抽出ルール(deprel: case/mark/aux/cop/cc/"
+            "<p class=\"note\">抽出ルール(deprel: case/mark/aux/cop/cc/"
             "discourse/fixed、指示代名詞、形式名詞、接続副詞、補助動詞)で各トークンを"
             "「繋ぎの語」か判定し、連続する繋ぎ語を膠着させて1塊(チャンク)として扱う。"
             "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
