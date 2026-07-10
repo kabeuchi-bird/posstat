@@ -169,6 +169,24 @@ def _sent_chunks(sent, kanas: Sequence[str]) -> list:
     return chunks
 
 
+_MASK_CHAR = "□"  # □
+
+
+def _masked_line(sent, kanas: Sequence[str]) -> str:
+    """文を「繋ぎの語はカナ、それ以外は□で潰す」1行のテキストに変換する。
+
+    句読点・記号・空白はチャンク境界だが、可読性のため原文のまま残す。
+    """
+    parts = []
+    for token in sent:
+        if token.pos_ in _CHUNK_BOUNDARY_POS:
+            parts.append(token.text)
+            continue
+        kana = kanas[token.i - sent.start]
+        parts.append(kana if is_tsunagi(token) else _MASK_CHAR * len(kana))
+    return "".join(parts)
+
+
 def _cross_ngrams(stats_bigram: Counter, stats_trigram: Counter, r: str, s: str) -> None:
     """隣接する読み r, s の境界を跨ぐ2/3-gramを積む(r, s は非空)。"""
     stats_bigram[(r[-1], s[0])] += 1
@@ -178,7 +196,12 @@ def _cross_ngrams(stats_bigram: Counter, stats_trigram: Counter, r: str, s: str)
         stats_trigram[(r[-1], s[0], s[1])] += 1
 
 
-def _accumulate(stats: GinzaStats, doc, bunsetu_spans) -> None:
+def _accumulate(
+    stats: GinzaStats,
+    doc,
+    bunsetu_spans,
+    on_masked_line: Optional[Callable[[str], None]] = None,
+) -> None:
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
@@ -219,6 +242,9 @@ def _accumulate(stats: GinzaStats, doc, bunsetu_spans) -> None:
             _cross_ngrams(stats.kana_bigram_cross_chunk,
                           stats.kana_trigram_cross_chunk, r, s)
 
+        if on_masked_line is not None:
+            on_masked_line(_masked_line(sent, kanas))
+
 
 def run(
     sentences: Sequence[str],
@@ -226,11 +252,13 @@ def run(
     batch_size: int = 128,
     n_process: int = 0,
     on_progress: Optional[Callable[[int], None]] = None,
+    on_masked_line: Optional[Callable[[str], None]] = None,
 ) -> GinzaStats:
     """全文を GiNZA で解析して GinzaStats を返す。
 
     nlp.pipe() はイテレータなので、消費側ループで文数をカウントして
-    そのまま進捗を更新する。
+    そのまま進捗を更新する。on_masked_line を渡すと、文ごとに
+    「繋ぎの語」チャンクをカナ表記・それ以外を□で潰した1行を渡す。
     """
     try:
         import spacy
@@ -263,7 +291,7 @@ def run(
     stats = GinzaStats()
     try:
         for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
-            _accumulate(stats, doc, bunsetu_spans)
+            _accumulate(stats, doc, bunsetu_spans, on_masked_line=on_masked_line)
             if on_progress:
                 on_progress(1)
     except BrokenPipeError:

@@ -55,6 +55,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("-o", "--output", default="output", help="出力ディレクトリ(既定: output/)")
     ap.add_argument("--log-interval", type=float, default=None,
                     help="非TTY時の行ログ間隔(秒)。config より優先")
+    ap.add_argument(
+        "--dump-tsunagi-text", action="store_true",
+        help="「繋ぎの語」チャンクをカナ表記、それ以外を□で潰したテキストを"
+             " output/tsunagi_masked.txt に出力(Stage 2 実行時のみ)",
+    )
     ap.add_argument("--version", action="version", version=f"posstat {__version__}")
     return ap.parse_args(argv)
 
@@ -114,6 +119,11 @@ def run(args: argparse.Namespace) -> int:
             )
             traceback.print_exc()
             return 2
+        tsunagi_file = None
+        if args.dump_tsunagi_text:
+            tsunagi_path = out_dir / "tsunagi_masked.txt"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            tsunagi_file = tsunagi_path.open("w", encoding="utf-8")
         try:
             rep.start_task(t2, total=n_sentences)
             ginza = ginza_stage.run(
@@ -122,6 +132,8 @@ def run(args: argparse.Namespace) -> int:
                 batch_size=cfg["ginza"]["batch_size"],
                 n_process=cfg["ginza"]["n_process"],
                 on_progress=lambda n: rep.advance(t2, n),
+                on_masked_line=(lambda line: tsunagi_file.write(line + "\n"))
+                if tsunagi_file else None,
             )
             rep.finish(t2)
         except ImportError as e:
@@ -135,6 +147,9 @@ def run(args: argparse.Namespace) -> int:
             print("解析エラー (Stage 2 / GiNZA):", file=sys.stderr)
             traceback.print_exc()
             return 2
+        finally:
+            if tsunagi_file:
+                tsunagi_file.close()
 
         # 集計・出力 ------------------------------------------------------
         rep.start_task(t3)
@@ -157,7 +172,10 @@ def run(args: argparse.Namespace) -> int:
         rep.advance(t3)
         rep.finish(t3)
 
-    print(f"完了: {html_path} / {json_path}", file=sys.stderr)
+    msg = f"完了: {html_path} / {json_path}"
+    if args.dump_tsunagi_text:
+        msg += f" / {out_dir / 'tsunagi_masked.txt'}"
+    print(msg, file=sys.stderr)
     return 0
 
 
