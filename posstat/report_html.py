@@ -267,7 +267,10 @@ def render(
     parts.append("<h3>直後の品詞</h3>")
     parts.append(_table(["記号", "品詞", "頻度", "比率"], _counter_rows(mecab.symbol_next_pos), "t-symnpos"))
     parts.append("<h3>直前の隣接カナ(尻)</h3>")
-    parts.append(_table(["記号", "カナ", "頻度", "比率"], _counter_rows(mecab.symbol_prev_kana), "t-sympkana"))
+    prev_rows = [[k, s, c, r] for (s, k), c, r in
+                 ((key, cnt, cnt / (sum(mecab.symbol_prev_kana.values()) or 1))
+                  for key, cnt in mecab.symbol_prev_kana.most_common())]
+    parts.append(_table(["カナ", "記号", "頻度", "比率"], prev_rows, "t-sympkana"))
     parts.append("<h3>直後の隣接カナ(頭)</h3>")
     parts.append(_table(["記号", "カナ", "頻度", "比率"], _counter_rows(mecab.symbol_next_kana), "t-symnkana"))
 
@@ -326,9 +329,10 @@ def render(
             "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
         parts.append("<h3>繋ぎチャンク頻度(連結カナ)</h3>")
         parts.append(_limit_note(ginza.tsunagi_chunk_freq))
-        parts.append(_table(["チャンク(カナ)", "頻度", "比率"],
-                            _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT),
-                            "t-tsunagi-freq"))
+        tsunagi_rows = [[k, len(k), c, r] for [k, c, r]
+                        in _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT)]
+        parts.append(_table(["チャンク(カナ)", "文字数", "頻度", "比率"],
+                            tsunagi_rows, "t-tsunagi-freq"))
         parts.append("<h3>繋ぎチャンク内カナ2-gram</h3>")
         parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
                             _counter_rows(ginza.kana_bigram_within_tsunagi), "t-tsunagi-bi"))
