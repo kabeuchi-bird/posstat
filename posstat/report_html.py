@@ -28,10 +28,18 @@ class _Raw(str):
     """_table 内でエスケープせずそのまま出力するマーカー文字列。"""
 
 
-def _bar_cell(ratio: float) -> _Raw:
-    """比率(0-1)を横棒で可視化するセルの HTML。"""
-    pct = max(0.0, min(1.0, ratio)) * 100
+def _bar_cell(ratio: float, scale: float = 1.0) -> _Raw:
+    """比率を横棒で可視化するセルの HTML。scale(列の最大値)を全幅とする相対表示。"""
+    pct = max(0.0, min(1.0, ratio / scale if scale else 0.0)) * 100
     return _Raw(f'<div class="bar"><i style="width:{pct:.1f}%"></i></div>')
+
+
+def _row_weights(pair_counter: Counter) -> Counter:
+    """(a, b) ペア Counter から行(a)ごとの総頻度を集計する。"""
+    weights: Counter = Counter()
+    for (a, _b), cnt in pair_counter.items():
+        weights[a] += cnt
+    return weights
 
 
 def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> str:
@@ -105,8 +113,16 @@ def _matrix_table(matrix: Dict[str, Dict[str, float]], table_id: str, limit: int
     return note + _table(headers, rows, table_id)
 
 
-def _heatmap_png(matrix: Dict[str, Dict[str, float]], title: str) -> Optional[str]:
+def _heatmap_png(
+    matrix: Dict[str, Dict[str, float]],
+    title: str,
+    row_weights: Optional[Counter] = None,
+    min_count: int = 0,
+) -> Optional[str]:
     """遷移行列の heatmap を base64 PNG で返す。
+
+    row_weights を渡すと、行の総頻度が min_count 未満の行を淡色表示にする
+    (確率は行内正規化のため、標本の少ない行の濃いセルは信頼できない)。
 
     matplotlib は必須依存だが、万一インポートできない環境でも
     解析結果(表・JSON)を失わないよう heatmap だけスキップして続行する。
@@ -138,16 +154,29 @@ def _heatmap_png(matrix: Dict[str, Dict[str, float]], title: str) -> Optional[st
         print("警告: 日本語フォント未検出。heatmap のラベルが欠ける場合があります", file=sys.stderr)
     warnings.filterwarnings("ignore", message="Glyph .* missing from font")
 
+    import numpy as np
+
     labels = sorted(matrix)
-    data = [[matrix.get(a, {}).get(b, 0.0) for b in labels] for a in labels]
+    data = np.array([[matrix.get(a, {}).get(b, 0.0) for b in labels] for a in labels])
+    norm = matplotlib.colors.Normalize(vmin=0.0, vmax=float(data.max()) or 1.0)
+    cmap = plt.get_cmap("viridis")
+    rgba = cmap(norm(data))
+    faded = [row_weights is not None and row_weights.get(a, 0) < min_count
+             for a in labels]
+    for i, fade in enumerate(faded):
+        if fade:
+            rgba[i, :, :3] = rgba[i, :, :3] * 0.25 + 0.75  # 白へブレンド
     fig, ax = plt.subplots(figsize=(max(6, len(labels) * 0.5), max(5, len(labels) * 0.45)))
-    im = ax.imshow(data, cmap="viridis", aspect="auto")
+    ax.imshow(rgba, aspect="auto")
     ax.set_xticks(range(len(labels)))
     ax.set_yticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=90, fontsize=8)
     ax.set_yticklabels(labels, fontsize=8)
+    for tick, fade in zip(ax.get_yticklabels(), faded):
+        if fade:
+            tick.set_color("#999999")
     ax.set_title(title)
-    fig.colorbar(im, ax=ax, shrink=0.8)
+    fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, shrink=0.8)
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110)
@@ -260,8 +289,12 @@ def render(
     ginza: Optional[GinzaStats],
     stats_json: Dict,
     heatmap: bool = True,
+    min_count: int = 10,
 ) -> str:
-    """レポート HTML 全体を組み立てて返す。セクションはタブで切り替える。"""
+    """レポート HTML 全体を組み立てて返す。セクションはタブで切り替える。
+
+    min_count は heatmap の淡色表示のしきい値(行の総頻度がこれ未満なら淡色)。
+    """
     meta = stats_json["meta"]
     sections: List[tuple] = []
 
@@ -295,9 +328,13 @@ def render(
     parts = begin("3. 品詞遷移確率行列")
     pos_matrix = stats_json["pos_transition"]
     if heatmap:
-        img = _heatmap_png(pos_matrix, "POS transition P(next | prev)")
+        img = _heatmap_png(pos_matrix, "POS transition P(next | prev)",
+                           row_weights=_row_weights(mecab.pos_bigram),
+                           min_count=min_count)
         if img:
             parts.append(img)
+            parts.append(f"<p class=\"note\">総頻度が {min_count} 未満の行(先行品詞)は"
+                         "標本不足のため淡色表示(ラベルもグレー)。</p>")
     parts.append(_matrix_table(pos_matrix, "t-postrans"))
 
     # 4. 品詞3-gram上位
@@ -354,9 +391,13 @@ def render(
         parts.append("<h3>文節先頭品詞の遷移</h3>")
         bpos_matrix = stats_json["bunsetsu_head_pos_transition"]
         if heatmap:
-            img = _heatmap_png(bpos_matrix, "Bunsetsu-head POS transition P(next | prev)")
+            img = _heatmap_png(bpos_matrix, "Bunsetsu-head POS transition P(next | prev)",
+                               row_weights=_row_weights(ginza.bunsetsu_head_pos_transition),
+                               min_count=min_count)
             if img:
                 parts.append(img)
+                parts.append(f"<p class=\"note\">総頻度が {min_count} 未満の行(先行品詞)は"
+                             "標本不足のため淡色表示(ラベルもグレー)。</p>")
         parts.append(_matrix_table(bpos_matrix, "t-bpos"))
 
     # 9. 係り受けラベル頻度
@@ -375,8 +416,12 @@ def render(
         for (dep, _src, _dst), cnt in ginza.dep_pos_pairs.items():
             dep_only[dep] += cnt
         parts.append("<h3>depラベル別頻度(概要)</h3>")
-        dep_rows = [[dep, cnt, ratio, _bar_cell(ratio)]
-                    for dep, cnt, ratio in _counter_rows(dep_only)]
+        parts.append("<p class=\"note\">分布バーは最大値を全幅とする相対表示"
+                     "(絶対値は「比率」列を参照)。</p>")
+        dep_data = _counter_rows(dep_only)
+        max_ratio = dep_data[0][2] if dep_data else 1.0  # most_common 順で先頭が最大
+        dep_rows = [[dep, cnt, ratio, _bar_cell(ratio, max_ratio)]
+                    for dep, cnt, ratio in dep_data]
         parts.append(_table(["depラベル", "頻度", "比率", "分布"], dep_rows, "t-dep-summary"))
         parts.append("<h3>係り元品詞→係り先品詞の内訳(詳細)</h3>")
         parts.append(_table(["depラベル", "係り元品詞", "係り先品詞", "頻度", "比率"],
