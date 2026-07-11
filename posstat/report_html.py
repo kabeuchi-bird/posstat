@@ -157,9 +157,11 @@ def _heatmap_png(
     import numpy as np
 
     labels = sorted(matrix)
+    if not labels:
+        return None
     data = np.array([[matrix.get(a, {}).get(b, 0.0) for b in labels] for a in labels])
     norm = matplotlib.colors.Normalize(vmin=0.0, vmax=float(data.max()) or 1.0)
-    cmap = plt.get_cmap("viridis")
+    cmap = matplotlib.colormaps["viridis"]
     rgba = cmap(norm(data))
     faded = [row_weights is not None and row_weights.get(a, 0) < min_count
              for a in labels]
