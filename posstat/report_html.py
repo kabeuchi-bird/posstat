@@ -165,6 +165,16 @@ tr:nth-child(even) { background: #fafafa; }
 img { max-width: 100%; }
 dl.meta { display: grid; grid-template-columns: 12rem 1fr; gap: .2rem .8rem; }
 dl.meta dt { font-weight: bold; }
+nav.tabs { display: flex; flex-wrap: wrap; gap: .3rem; position: sticky; top: 0;
+           background: #fff; padding: .6rem 0 0; border-bottom: 2px solid #4a6; z-index: 10; }
+nav.tabs button { border: 1px solid #ccc; border-bottom: none; background: #f2f2f2;
+                  padding: .35rem .7rem; cursor: pointer; font-size: .85rem;
+                  border-radius: .35rem .35rem 0 0; color: #444; }
+nav.tabs button:hover { background: #e4eee4; }
+nav.tabs button.active { background: #4a6; border-color: #4a6; color: #fff; font-weight: bold; }
+.panel { display: none; }
+.panel.active { display: block; }
+.panel > h2 { margin-top: 1rem; }
 </style>
 </head>
 <body>
@@ -203,6 +213,26 @@ $body
       });
     });
   });
+  var tabButtons = document.querySelectorAll("nav.tabs button");
+  function showPanel(id) {
+    if (!document.getElementById(id)) return;
+    document.querySelectorAll(".panel").forEach(function (p) {
+      p.classList.toggle("active", p.id === id);
+    });
+    tabButtons.forEach(function (b) {
+      b.classList.toggle("active", b.dataset.panel === id);
+    });
+  }
+  tabButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      showPanel(btn.dataset.panel);
+      history.replaceState(null, "", "#" + btn.dataset.panel);
+    });
+  });
+  window.addEventListener("hashchange", function () {
+    showPanel(location.hash.slice(1));
+  });
+  if (location.hash) showPanel(location.hash.slice(1));
 })();
 </script>
 </body>
@@ -216,12 +246,19 @@ def render(
     stats_json: Dict,
     heatmap: bool = True,
 ) -> str:
-    """レポート HTML 全体を組み立てて返す。"""
+    """レポート HTML 全体を組み立てて返す。セクションはタブで切り替える。"""
     meta = stats_json["meta"]
-    parts: List[str] = []
+    sections: List[tuple] = []
+
+    def begin(title: str) -> List[str]:
+        """新しいタブセクションを開始し、本文を積むリストを返す。"""
+        body: List[str] = []
+        sections.append((title, body))
+        return body
 
     # 1. コーパス概要
-    parts.append("<h2>1. コーパス概要</h2><dl class=\"meta\">")
+    parts = begin("1. コーパス概要")
+    parts.append("<dl class=\"meta\">")
     labels = {
         "chars": "総文字数", "sentences": "総文数", "tokens": "総トークン数",
         "files": "読込ファイル数", "generated": "生成日時", "model": "GiNZA モデル",
@@ -233,13 +270,14 @@ def render(
     parts.append("</dl>")
 
     # 2. 品詞頻度(大/細分類)
-    parts.append("<h2>2. 品詞頻度</h2><h3>大分類</h3>")
+    parts = begin("2. 品詞頻度")
+    parts.append("<h3>大分類</h3>")
     parts.append(_table(["品詞", "頻度", "比率"], _counter_rows(mecab.pos1_unigram), "t-pos1"))
     parts.append("<h3>細分類</h3>")
     parts.append(_table(["品詞(大-細)", "頻度", "比率"], _counter_rows(mecab.pos2_unigram), "t-pos2"))
 
     # 3. 品詞遷移確率行列
-    parts.append("<h2>3. 品詞遷移確率行列</h2>")
+    parts = begin("3. 品詞遷移確率行列")
     pos_matrix = stats_json["pos_transition"]
     if heatmap:
         img = _heatmap_png(pos_matrix, "POS transition P(next | prev)")
@@ -248,31 +286,34 @@ def render(
     parts.append(_matrix_table(pos_matrix, "t-postrans"))
 
     # 4. 品詞3-gram上位
-    parts.append("<h2>4. 品詞3-gram</h2>")
+    parts = begin("4. 品詞3-gram")
     parts.append(_table(["1", "2", "3", "頻度", "比率"], _counter_rows(mecab.pos_trigram), "t-pos3"))
 
     # 5. 活用形分布(動詞・形容詞別)
-    parts.append("<h2>5. 活用形分布</h2>")
+    parts = begin("5. 活用形分布")
     parts.append(_table(["品詞", "活用形", "頻度", "比率"], _counter_rows(mecab.cform_by_pos), "t-cform"))
 
     # 6. 品詞ごとの頭尾カナ
-    parts.append("<h2>6. 品詞ごとの頭尾カナ</h2><h3>頭カナ</h3>")
+    parts = begin("6. 品詞ごとの頭尾カナ")
+    parts.append("<h3>頭カナ</h3>")
     parts.append(_table(["品詞", "カナ", "頻度", "比率"], _counter_rows(mecab.head_kana_by_pos), "t-headkana"))
     parts.append("<h3>尻カナ</h3>")
     parts.append(_table(["品詞", "カナ", "頻度", "比率"], _counter_rows(mecab.tail_kana_by_pos), "t-tailkana"))
 
     # 7. 記号前後統計
-    parts.append("<h2>7. 記号前後統計</h2><h3>直前の品詞</h3>")
+    parts = begin("7. 記号前後統計")
+    parts.append("<h3>直前の品詞</h3>")
     parts.append(_table(["記号", "品詞", "頻度", "比率"], _counter_rows(mecab.symbol_prev_pos), "t-symppos"))
     parts.append("<h3>直後の品詞</h3>")
     parts.append(_table(["記号", "品詞", "頻度", "比率"], _counter_rows(mecab.symbol_next_pos), "t-symnpos"))
     parts.append("<h3>直前の隣接カナ(尻)</h3>")
-    parts.append(_table(["記号", "カナ", "頻度", "比率"], _counter_rows(mecab.symbol_prev_kana), "t-sympkana"))
+    prev_rows = [[k, s, c, r] for [s, k, c, r] in _counter_rows(mecab.symbol_prev_kana)]
+    parts.append(_table(["カナ", "記号", "頻度", "比率"], prev_rows, "t-sympkana"))
     parts.append("<h3>直後の隣接カナ(頭)</h3>")
     parts.append(_table(["記号", "カナ", "頻度", "比率"], _counter_rows(mecab.symbol_next_kana), "t-symnkana"))
 
     # 8. 文節統計
-    parts.append("<h2>8. 文節統計</h2>")
+    parts = begin("8. 文節統計")
     if ginza is None:
         parts.append(_STAGE2_NOTE)
     else:
@@ -299,7 +340,7 @@ def render(
         parts.append(_matrix_table(stats_json["bunsetsu_head_pos_transition"], "t-bpos"))
 
     # 9. 係り受けラベル頻度
-    parts.append("<h2>9. 係り受けラベル頻度</h2>")
+    parts = begin("9. 係り受けラベル頻度")
     if ginza is None:
         parts.append(_STAGE2_NOTE)
     else:
@@ -307,7 +348,7 @@ def render(
                             _counter_rows(ginza.dep_pos_pairs), "t-dep"))
 
     # 10. 「絶対来ない」ペア(PMI下位)
-    parts.append("<h2>10. 「絶対来ない」ペア(PMI下位)</h2>")
+    parts = begin("10. 「絶対来ない」ペア(PMI下位)")
     parts.append("<p class=\"note\">隣接カナ全体(品詞内+境界跨ぎ)で期待頻度が基準以上なのに"
                  "観測ゼロまたは低PMIのペア。pmi 空欄は観測ゼロ。</p>")
     fp_rows = [[p["a"], p["b"], "" if p["pmi"] is None else p["pmi"], p["expected"]]
@@ -315,7 +356,7 @@ def render(
     parts.append(_table(["先行カナ", "後続カナ", "PMI", "期待頻度"], fp_rows, "t-forbidden"))
 
     # 11. 「繋ぎの語」チャンク分析
-    parts.append("<h2>11. 「繋ぎの語」チャンク分析</h2>")
+    parts = begin("11. 「繋ぎの語」チャンク分析")
     if ginza is None:
         parts.append(_STAGE2_NOTE)
     else:
@@ -326,9 +367,10 @@ def render(
             "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
         parts.append("<h3>繋ぎチャンク頻度(連結カナ)</h3>")
         parts.append(_limit_note(ginza.tsunagi_chunk_freq))
-        parts.append(_table(["チャンク(カナ)", "頻度", "比率"],
-                            _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT),
-                            "t-tsunagi-freq"))
+        tsunagi_rows = [[k, len(k), c, r] for [k, c, r]
+                        in _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT)]
+        parts.append(_table(["チャンク(カナ)", "文字数", "頻度", "比率"],
+                            tsunagi_rows, "t-tsunagi-freq"))
         parts.append("<h3>繋ぎチャンク内カナ2-gram</h3>")
         parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
                             _counter_rows(ginza.kana_bigram_within_tsunagi), "t-tsunagi-bi"))
@@ -345,7 +387,16 @@ def render(
         parts.append("<h3>チャンク境界跨ぎカナ3-gram</h3>")
         parts.append(_trigram_table(ginza.kana_trigram_cross_chunk, "t-chunk-cross-tri"))
 
-    return _PAGE.safe_substitute(body="\n".join(parts))
+    tabs: List[str] = []
+    panels: List[str] = []
+    for i, (title, body) in enumerate(sections):
+        sid = f"s{i + 1}"
+        active = " active" if i == 0 else ""
+        tabs.append(f'<button class="tab{active}" data-panel="{sid}">{_esc(title)}</button>')
+        panels.append(f'<section class="panel{active}" id="{sid}">'
+                      f"<h2>{_esc(title)}</h2>\n" + "\n".join(body) + "</section>")
+    nav = f'<nav class="tabs">{"".join(tabs)}</nav>'
+    return _PAGE.safe_substitute(body=nav + "\n" + "\n".join(panels))
 
 
 def write_html(html_text: str, out_dir: Path) -> Path:

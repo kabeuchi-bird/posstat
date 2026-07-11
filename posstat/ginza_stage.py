@@ -215,7 +215,8 @@ def _accumulate(
         for span in spans:
             stats.bunsetsu_len_dist[len(span.text)] += 1
             head_pos_seq.append(span[0].pos_)
-            kana = "".join(kanas[t.i - sent.start] for t in span)
+            kana = "".join(kanas[t.i - sent.start] for t in span
+                          if t.pos_ not in _CHUNK_BOUNDARY_POS)
             readings.append(kana)
             if kana:
                 stats.bunsetsu_head_kana[kana[0]] += 1
