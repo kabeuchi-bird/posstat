@@ -364,6 +364,13 @@ def render(
     if ginza is None:
         parts.append(_STAGE2_NOTE)
     else:
+        parts.append(
+            "<p class=\"note\">depラベルは Universal Dependencies(UD)の統語関係ラベル"
+            "(GiNZA は日本語 UD 準拠)。各ラベルの意味は"
+            " <a href=\"https://masayu-a.github.io/UD_Japanese-docs/u/dep/all.html\""
+            " target=\"_blank\" rel=\"noopener\">UD 公式ドキュメント日本語訳(関係ラベル一覧)</a>"
+            " / <a href=\"https://universaldependencies.org/u/dep/all.html\""
+            " target=\"_blank\" rel=\"noopener\">英語原文</a> を参照。</p>")
         dep_only: Counter = Counter()
         for (dep, _src, _dst), cnt in ginza.dep_pos_pairs.items():
             dep_only[dep] += cnt
