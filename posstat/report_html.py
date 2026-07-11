@@ -24,6 +24,16 @@ def _esc(v) -> str:
     return html.escape(str(v))
 
 
+class _Raw(str):
+    """_table 内でエスケープせずそのまま出力するマーカー文字列。"""
+
+
+def _bar_cell(ratio: float) -> _Raw:
+    """比率(0-1)を横棒で可視化するセルの HTML。"""
+    pct = max(0.0, min(1.0, ratio)) * 100
+    return _Raw(f'<div class="bar"><i style="width:{pct:.1f}%"></i></div>')
+
+
 def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> str:
     """ソート・フィルタ付きテーブルの HTML を返す。"""
     th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
@@ -31,6 +41,9 @@ def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> s
     for row in rows:
         tds = []
         for v in row:
+            if isinstance(v, _Raw):
+                tds.append(f"<td>{v}</td>")
+                continue
             cls = ' class="num"' if isinstance(v, (int, float)) else ""
             if isinstance(v, float):
                 v = f"{v:.4f}" if abs(v) < 1000 else f"{v:.1f}"
@@ -162,6 +175,8 @@ tr:nth-child(even) { background: #fafafa; }
 .tablewrap { max-height: 30rem; overflow: auto; border: 1px solid #ddd; }
 .filter { margin: .4rem 0; padding: .2rem .4rem; width: 16rem; }
 .rowcount, .note { color: #888; font-size: .8rem; }
+.bar { background: #eee; border-radius: .2rem; overflow: hidden; height: .7rem; min-width: 6rem; }
+.bar i { display: block; height: 100%; background: #4a6; }
 img { max-width: 100%; }
 dl.meta { display: grid; grid-template-columns: 12rem 1fr; gap: .2rem .8rem; }
 dl.meta dt { font-weight: bold; }
@@ -337,13 +352,26 @@ def render(
                      "および前文節尻1カナ+後文節頭2カナの両方を数える。</p>")
         parts.append(_trigram_table(ginza.kana_trigram_cross_bunsetsu, "t-bcross3"))
         parts.append("<h3>文節先頭品詞の遷移</h3>")
-        parts.append(_matrix_table(stats_json["bunsetsu_head_pos_transition"], "t-bpos"))
+        bpos_matrix = stats_json["bunsetsu_head_pos_transition"]
+        if heatmap:
+            img = _heatmap_png(bpos_matrix, "Bunsetsu-head POS transition P(next | prev)")
+            if img:
+                parts.append(img)
+        parts.append(_matrix_table(bpos_matrix, "t-bpos"))
 
     # 9. 係り受けラベル頻度
     parts = begin("9. 係り受けラベル頻度")
     if ginza is None:
         parts.append(_STAGE2_NOTE)
     else:
+        dep_only: Counter = Counter()
+        for (dep, _src, _dst), cnt in ginza.dep_pos_pairs.items():
+            dep_only[dep] += cnt
+        parts.append("<h3>depラベル別頻度(概要)</h3>")
+        dep_rows = [[dep, cnt, ratio, _bar_cell(ratio)]
+                    for dep, cnt, ratio in _counter_rows(dep_only)]
+        parts.append(_table(["depラベル", "頻度", "比率", "分布"], dep_rows, "t-dep-summary"))
+        parts.append("<h3>係り元品詞→係り先品詞の内訳(詳細)</h3>")
         parts.append(_table(["depラベル", "係り元品詞", "係り先品詞", "頻度", "比率"],
                             _counter_rows(ginza.dep_pos_pairs), "t-dep"))
 
