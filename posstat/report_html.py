@@ -307,9 +307,7 @@ def render(
     parts.append("<h3>直後の品詞</h3>")
     parts.append(_table(["記号", "品詞", "頻度", "比率"], _counter_rows(mecab.symbol_next_pos), "t-symnpos"))
     parts.append("<h3>直前の隣接カナ(尻)</h3>")
-    prev_rows = [[k, s, c, r] for (s, k), c, r in
-                 ((key, cnt, cnt / (sum(mecab.symbol_prev_kana.values()) or 1))
-                  for key, cnt in mecab.symbol_prev_kana.most_common())]
+    prev_rows = [[k, s, c, r] for [s, k, c, r] in _counter_rows(mecab.symbol_prev_kana)]
     parts.append(_table(["カナ", "記号", "頻度", "比率"], prev_rows, "t-sympkana"))
     parts.append("<h3>直後の隣接カナ(頭)</h3>")
     parts.append(_table(["記号", "カナ", "頻度", "比率"], _counter_rows(mecab.symbol_next_kana), "t-symnkana"))
