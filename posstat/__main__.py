@@ -60,6 +60,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="「繋ぎの語」チャンクをカナ表記、それ以外を□で潰したテキストを"
              " output/tsunagi_masked.txt に出力(Stage 2 実行時のみ)",
     )
+    ap.add_argument(
+        "--long-bunsetsu", type=int, default=0, metavar="N",
+        help="診断用に最長文節の実例 上位N件を収集し、レポートの文節統計に掲載"
+             "(既定: 0=無効)",
+    )
     ap.add_argument("--version", action="version", version=f"posstat {__version__}")
     return ap.parse_args(argv)
 
@@ -134,6 +139,7 @@ def run(args: argparse.Namespace) -> int:
                 on_progress=lambda n: rep.advance(t2, n),
                 on_masked_line=(lambda line: tsunagi_file.write(line + "\n"))
                 if tsunagi_file else None,
+                collect_long=args.long_bunsetsu,
             )
             rep.finish(t2)
         except ImportError as e:

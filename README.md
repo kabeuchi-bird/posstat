@@ -50,6 +50,11 @@ python -m posstat CORPUS_PATH [-c config.toml] [-o output/]
 - `--log-interval N`: 非TTY時の行ログ間隔(秒)
 - `--dump-tsunagi-text`: 「繋ぎの語」チャンクをカナ表記、それ以外を `□` で潰したテキストを
   `output/tsunagi_masked.txt` に文単位で出力(Stage 2 実行時のみ)。判定ルールの目視確認用
+- `--long-bunsetsu N`: 診断用に最長文節の実例 上位 N 件(表層とトークン内訳)を収集し、
+  レポートの文節統計セクションに掲載(既定: 無効)。異常に長い文節の原因調査用
+
+文節長分布の文字数は空白・記号(PUNCT/SYM/SPACE)を除いた表層文字数です
+(文節内カナ n-gram と同じ基準)。
 
 exit code: `0` = 成功, `1` = 入力エラー, `2` = 解析エラー。
 
