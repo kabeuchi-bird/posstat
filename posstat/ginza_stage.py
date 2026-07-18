@@ -222,13 +222,16 @@ def _accumulate(
                            if t.pos_ not in _CHUNK_BOUNDARY_POS)
             if core_len:
                 stats.bunsetsu_len_dist[core_len] += 1
-            if collect_long and core_len:
-                item = (core_len, span.text,
-                        " ".join(f"{t.text}({t.pos_})" for t in span))
-                if len(stats.long_bunsetsu) < collect_long:
-                    heapq.heappush(stats.long_bunsetsu, item)
-                elif item > stats.long_bunsetsu[0]:
-                    heapq.heappushpop(stats.long_bunsetsu, item)
+            if collect_long > 0 and core_len:
+                # ヒープ未充填、またはヒープの最小文字数以上の場合のみ文字列を構築する
+                if (len(stats.long_bunsetsu) < collect_long
+                        or core_len >= stats.long_bunsetsu[0][0]):
+                    item = (core_len, span.text,
+                            " ".join(f"{t.text}({t.pos_})" for t in span))
+                    if len(stats.long_bunsetsu) < collect_long:
+                        heapq.heappush(stats.long_bunsetsu, item)
+                    elif item > stats.long_bunsetsu[0]:
+                        heapq.heappushpop(stats.long_bunsetsu, item)
             head_pos_seq.append(span[0].pos_)
             kana = "".join(kanas[t.i - sent.start] for t in span
                           if t.pos_ not in _CHUNK_BOUNDARY_POS)
@@ -314,10 +317,10 @@ def run(
                         collect_long=collect_long)
             if on_progress:
                 on_progress(1)
-    except BrokenPipeError:
+    except BrokenPipeError as e:
         raise RuntimeError(
             f"GiNZA の子プロセスが異常終了しました (n_process={nproc})。\n"
             "  config.toml で [ginza] n_process = 1 にして再実行してください。"
-        )
+        ) from e
     stats.long_bunsetsu.sort(reverse=True)
     return stats
