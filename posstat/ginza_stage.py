@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import heapq
 import os
 from collections import Counter
 from dataclasses import dataclass, field
@@ -104,7 +105,9 @@ class GinzaStats:
     # 1. 文節境界統計: 文節頭 / 尻カナ 1-gram、文節長分布
     bunsetsu_head_kana: Counter = field(default_factory=Counter)  # kana
     bunsetsu_tail_kana: Counter = field(default_factory=Counter)
-    bunsetsu_len_dist: Counter = field(default_factory=Counter)  # 表層文字数
+    bunsetsu_len_dist: Counter = field(default_factory=Counter)  # 空白・記号を除く表層文字数
+    # 診断用: 最長文節の実例 (文字数, 表層, トークン内訳)。collect_long 指定時のみ収集
+    long_bunsetsu: list = field(default_factory=list)
     # 2. 文節境界跨ぎカナ2/3-gram vs 文節内2/3-gram
     kana_bigram_within_bunsetsu: Counter = field(default_factory=Counter)  # (k1, k2)
     kana_bigram_cross_bunsetsu: Counter = field(default_factory=Counter)
@@ -201,6 +204,7 @@ def _accumulate(
     doc,
     bunsetu_spans,
     on_masked_line: Optional[Callable[[str], None]] = None,
+    collect_long: int = 0,
 ) -> None:
     for sent in doc.sents:
         stats.n_sentences += 1
@@ -213,7 +217,21 @@ def _accumulate(
         readings = []
         head_pos_seq = []
         for span in spans:
-            stats.bunsetsu_len_dist[len(span.text)] += 1
+            # 文節長は空白・記号を除いた表層文字数(カナ連結と同じ基準)
+            core_len = sum(len(t.text) for t in span
+                           if t.pos_ not in _CHUNK_BOUNDARY_POS)
+            if core_len:
+                stats.bunsetsu_len_dist[core_len] += 1
+            if collect_long > 0 and core_len:
+                # ヒープ未充填、またはヒープの最小文字数以上の場合のみ文字列を構築する
+                if (len(stats.long_bunsetsu) < collect_long
+                        or core_len >= stats.long_bunsetsu[0][0]):
+                    item = (core_len, span.text,
+                            " ".join(f"{t.text}({t.pos_})" for t in span))
+                    if len(stats.long_bunsetsu) < collect_long:
+                        heapq.heappush(stats.long_bunsetsu, item)
+                    elif item > stats.long_bunsetsu[0]:
+                        heapq.heappushpop(stats.long_bunsetsu, item)
             head_pos_seq.append(span[0].pos_)
             kana = "".join(kanas[t.i - sent.start] for t in span
                           if t.pos_ not in _CHUNK_BOUNDARY_POS)
@@ -254,12 +272,15 @@ def run(
     n_process: int = 0,
     on_progress: Optional[Callable[[int], None]] = None,
     on_masked_line: Optional[Callable[[str], None]] = None,
+    collect_long: int = 0,
 ) -> GinzaStats:
     """全文を GiNZA で解析して GinzaStats を返す。
 
     nlp.pipe() はイテレータなので、消費側ループで文数をカウントして
     そのまま進捗を更新する。on_masked_line を渡すと、文ごとに
     「繋ぎの語」チャンクをカナ表記・それ以外を□で潰した1行を渡す。
+    collect_long > 0 なら診断用に最長文節の実例 上位 collect_long 件を
+    long_bunsetsu(文字数降順)に収集する。
     """
     try:
         import spacy
@@ -292,12 +313,14 @@ def run(
     stats = GinzaStats()
     try:
         for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
-            _accumulate(stats, doc, bunsetu_spans, on_masked_line=on_masked_line)
+            _accumulate(stats, doc, bunsetu_spans, on_masked_line=on_masked_line,
+                        collect_long=collect_long)
             if on_progress:
                 on_progress(1)
-    except BrokenPipeError:
+    except BrokenPipeError as e:
         raise RuntimeError(
             f"GiNZA の子プロセスが異常終了しました (n_process={nproc})。\n"
             "  config.toml で [ginza] n_process = 1 にして再実行してください。"
-        )
+        ) from e
+    stats.long_bunsetsu.sort(reverse=True)
     return stats

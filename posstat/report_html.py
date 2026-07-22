@@ -375,9 +375,15 @@ def render(
         parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_head_kana), "t-bhead"))
         parts.append("<h3>文節尻カナ</h3>")
         parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_tail_kana), "t-btail"))
-        parts.append("<h3>文節長分布(表層文字数)</h3>")
+        parts.append("<h3>文節長分布(空白・記号を除く表層文字数)</h3>")
         len_rows = sorted(_counter_rows(ginza.bunsetsu_len_dist), key=lambda r: r[0])
         parts.append(_table(["文字数", "頻度", "比率"], len_rows, "t-blen"))
+        if ginza.long_bunsetsu:
+            parts.append("<h3>最長文節の実例(診断)</h3>")
+            parts.append("<p class=\"note\">--long-bunsetsu N 指定時のみ収集。"
+                         "文字数は空白・記号を除く表層文字数。</p>")
+            parts.append(_table(["文字数", "文節(表層)", "トークン内訳"],
+                                list(ginza.long_bunsetsu), "t-blong"))
         parts.append("<h3>文節内カナ2-gram(上位)</h3>")
         parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
                             _counter_rows(ginza.kana_bigram_within_bunsetsu), "t-bwithin"))
