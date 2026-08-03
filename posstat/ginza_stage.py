@@ -143,18 +143,25 @@ def ensure_fork_start_method(nproc: int) -> bool:
     ロード済みモデルを渡し、fork の copy-on-write で子へ引き継ぐ前提。
     Python 3.14 で POSIX の既定が forkserver に変わったため、そのままだと
     子プロセスがモデルを受け取れず異常終了し EOFError になる。
-    forkserver が既定のときだけ fork へ戻す(macOS/Windows の spawn は
-    従来どおり触らない)。切り替えたら True を返す。
+
+    start method が未設定(= Python が選ぶ既定に委ねられている状態)かつ
+    そのプラットフォームの既定が forkserver のときだけ fork へ切り替える。
+    呼び出し元が明示的に forkserver を設定している場合はその選択を尊重し、
+    上書きしない(macOS/Windows の spawn 既定にも触れない)。
+    切り替えたら True を返す。
     """
     if nproc <= 1:
         return False
     import multiprocessing as mp
 
-    if mp.get_start_method() != "forkserver":
+    if mp.get_start_method(allow_none=True) is not None:
+        return False  # 明示設定済み(forkserver であっても)は尊重する
+    methods = mp.get_all_start_methods()
+    if not methods or methods[0] != "forkserver":
+        return False  # このプラットフォームの既定は forkserver ではない
+    if "fork" not in methods:
         return False
-    if "fork" not in mp.get_all_start_methods():
-        return False
-    mp.set_start_method("fork", force=True)
+    mp.set_start_method("fork", force=False)
     return True
 
 
