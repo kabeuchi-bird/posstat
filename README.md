@@ -173,4 +173,9 @@ posstat/
 - NFKC 正規化は行いません(！？…『』を保持)。BOM 除去のみ行います。
 - Windows では GiNZA の並列処理(spawn)のため、`python -m posstat` 以外から
   組み込む場合も `if __name__ == "__main__":` ガード配下で呼び出してください。
+- Python 3.14 以降の Linux では multiprocessing の既定 start method が
+  `forkserver` になりましたが、GiNZA の並列処理は `fork` の copy-on-write で
+  モデルを子プロセスへ渡す前提のため、`n_process > 1` のとき自動的に `fork` へ
+  戻します(macOS/Windows の `spawn` は変更しません)。子プロセスが落ちる場合は
+  `[ginza] n_process = 1` で回避できます。
 - エンコーディング判定不能なファイルは警告を出してスキップします。

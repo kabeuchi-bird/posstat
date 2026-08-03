@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import heapq
 import os
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
@@ -133,6 +134,28 @@ def default_n_process(configured: int) -> int:
     if configured and configured > 0:
         return configured
     return max(1, (os.cpu_count() or 2) - 1)
+
+
+def ensure_fork_start_method(nproc: int) -> bool:
+    """並列時のみ、multiprocessing の start method を fork に戻す。
+
+    spaCy の nlp.pipe(n_process>1) は既定コンテキストの mp.Process に
+    ロード済みモデルを渡し、fork の copy-on-write で子へ引き継ぐ前提。
+    Python 3.14 で POSIX の既定が forkserver に変わったため、そのままだと
+    子プロセスがモデルを受け取れず異常終了し EOFError になる。
+    forkserver が既定のときだけ fork へ戻す(macOS/Windows の spawn は
+    従来どおり触らない)。切り替えたら True を返す。
+    """
+    if nproc <= 1:
+        return False
+    import multiprocessing as mp
+
+    if mp.get_start_method() != "forkserver":
+        return False
+    if "fork" not in mp.get_all_start_methods():
+        return False
+    mp.set_start_method("fork", force=True)
+    return True
 
 
 def _token_kana(token) -> str:
@@ -310,6 +333,9 @@ def run(
     from ginza import bunsetu_spans  # 重量級のため Stage 2 実行時まで遅延
 
     nproc = default_n_process(n_process)
+    if ensure_fork_start_method(nproc):
+        print("情報: multiprocessing の start method を forkserver から fork に変更しました"
+              "(GiNZA の並列処理は fork 前提のため)", file=sys.stderr)
     stats = GinzaStats()
     try:
         for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
@@ -317,10 +343,12 @@ def run(
                         collect_long=collect_long)
             if on_progress:
                 on_progress(1)
-    except BrokenPipeError as e:
+    except (BrokenPipeError, EOFError) as e:
         raise RuntimeError(
             f"GiNZA の子プロセスが異常終了しました (n_process={nproc})。\n"
-            "  config.toml で [ginza] n_process = 1 にして再実行してください。"
+            "  メモリ不足か multiprocessing の start method 非互換が原因です。\n"
+            "  config.toml で [ginza] n_process = 1 にして再実行してください\n"
+            "  (batch_size を下げるとメモリ使用量を抑えられます)。"
         ) from e
     stats.long_bunsetsu.sort(reverse=True)
     return stats
