@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 _GINZA_EXPORTS: Dict[str, Callable] = {
     "bunsetsu_head_kana": aggregate.distribution,
     "bunsetsu_tail_kana": aggregate.distribution,
+    "bunsetsu_kana_len_dist": aggregate.distribution,
     "bunsetsu_head_pos_transition": aggregate.row_normalize,
     "kana_bigram_within_bunsetsu": aggregate.row_normalize,
     "kana_bigram_cross_bunsetsu": aggregate.row_normalize,
