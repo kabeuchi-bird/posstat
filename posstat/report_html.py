@@ -378,6 +378,15 @@ def render(
         parts.append("<h3>文節長分布(空白・記号を除く表層文字数)</h3>")
         len_rows = sorted(_counter_rows(ginza.bunsetsu_len_dist), key=lambda r: r[0])
         parts.append(_table(["文字数", "頻度", "比率"], len_rows, "t-blen"))
+        parts.append("<h3>文節長分布(読みのカナ文字数)</h3>")
+        parts.append("<p class=\"note\">打鍵数に対応する長さ。読みは Reading を優先し、"
+                     "無い場合は表層を平仮名→カタカナ変換して用いる。"
+                     "カナに変換できない文字(ラテン文字など)は落ちるため、"
+                     "英字を含む文節は表層文字数より短くなる"
+                     "(programming→プログラミング=7、読みの無い Gatsby→0)。"
+                     "カナが空になった文節のみ分布から除外される。</p>")
+        kana_len_rows = sorted(_counter_rows(ginza.bunsetsu_kana_len_dist), key=lambda r: r[0])
+        parts.append(_table(["カナ文字数", "頻度", "比率"], kana_len_rows, "t-bkanalen"))
         if ginza.long_bunsetsu:
             parts.append("<h3>最長文節の実例(診断)</h3>")
             parts.append("<p class=\"note\">--long-bunsetsu N 指定時のみ収集。"

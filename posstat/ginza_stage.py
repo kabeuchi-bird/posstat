@@ -107,6 +107,7 @@ class GinzaStats:
     bunsetsu_head_kana: Counter = field(default_factory=Counter)  # kana
     bunsetsu_tail_kana: Counter = field(default_factory=Counter)
     bunsetsu_len_dist: Counter = field(default_factory=Counter)  # 空白・記号を除く表層文字数
+    bunsetsu_kana_len_dist: Counter = field(default_factory=Counter)  # 読み(カナ)の文字数
     # 診断用: 最長文節の実例 (文字数, 表層, トークン内訳)。collect_long 指定時のみ収集
     long_bunsetsu: list = field(default_factory=list)
     # 2. 文節境界跨ぎカナ2/3-gram vs 文節内2/3-gram
@@ -127,6 +128,18 @@ class GinzaStats:
     kana_trigram_within_content: Counter = field(default_factory=Counter)
     kana_bigram_cross_chunk: Counter = field(default_factory=Counter)
     kana_trigram_cross_chunk: Counter = field(default_factory=Counter)
+
+
+# 二重鉤括弧は GiNZA の文節境界認識を乱し、述語まで巻き込んだ長大な1文節に
+# なることがある(品詞・係り受けは鉤括弧と同一なのに bunsetu_spans だけが変わる)。
+# Stage 2 に渡す入力でのみ鉤括弧へ寄せる。記号前後統計は Stage 1 が原文を見るため無影響、
+# カナ統計も括弧は PUNCT として除外済みなので影響しない。
+_QUOTE_NORMALIZE = str.maketrans({"『": "「", "』": "」"})
+
+
+def normalize_quotes_for_parse(text: str) -> str:
+    """GiNZA 入力用に『』を「」へ寄せる(原文は変更しない)。"""
+    return text.translate(_QUOTE_NORMALIZE)
 
 
 def default_n_process(configured: int) -> int:
@@ -220,6 +233,11 @@ def _masked_line(sent, kanas: Sequence[str]) -> str:
     return "".join(parts)
 
 
+def _strip_space(text: str) -> str:
+    """トークン表層から空白類を落とす(「test case」等の内部空白対策)。"""
+    return "".join(c for c in text if not c.isspace())
+
+
 def _cross_ngrams(stats_bigram: Counter, stats_trigram: Counter, r: str, s: str) -> None:
     """隣接する読み r, s の境界を跨ぐ2/3-gramを積む(r, s は非空)。"""
     stats_bigram[(r[-1], s[0])] += 1
@@ -247,8 +265,10 @@ def _accumulate(
         readings = []
         head_pos_seq = []
         for span in spans:
-            # 文節長は空白・記号を除いた表層文字数(カナ連結と同じ基準)
-            core_len = sum(len(t.text) for t in span
+            # 文節長は空白・記号を除いた表層文字数(カナ連結と同じ基準)。
+            # 「test case」のように1トークン内部に空白を含むことがあるため、
+            # トークン単位の除外だけでなく空白文字自体も落とす
+            core_len = sum(len(_strip_space(t.text)) for t in span
                            if t.pos_ not in _CHUNK_BOUNDARY_POS)
             if core_len:
                 stats.bunsetsu_len_dist[core_len] += 1
@@ -267,6 +287,7 @@ def _accumulate(
                           if t.pos_ not in _CHUNK_BOUNDARY_POS)
             readings.append(kana)
             if kana:
+                stats.bunsetsu_kana_len_dist[len(kana)] += 1
                 stats.bunsetsu_head_kana[kana[0]] += 1
                 stats.bunsetsu_tail_kana[kana[-1]] += 1
                 add_ngrams(kana, stats.kana_bigram_within_bunsetsu,
@@ -311,6 +332,7 @@ def run(
     「繋ぎの語」チャンクをカナ表記・それ以外を□で潰した1行を渡す。
     collect_long > 0 なら診断用に最長文節の実例 上位 collect_long 件を
     long_bunsetsu(文字数降順)に収集する。
+    入力は解析前に『』→「」へ正規化する(normalize_quotes_for_parse 参照)。
     """
     try:
         import spacy
@@ -344,8 +366,10 @@ def run(
         print("情報: multiprocessing の start method を forkserver から fork に変更しました"
               "(GiNZA の並列処理は fork 前提のため)", file=sys.stderr)
     stats = GinzaStats()
+    # 原文リストは Stage 1 と共有しているため、正規化はここで作る generator に閉じる
+    parse_input = (normalize_quotes_for_parse(s) for s in sentences)
     try:
-        for doc in nlp.pipe(sentences, batch_size=batch_size, n_process=nproc):
+        for doc in nlp.pipe(parse_input, batch_size=batch_size, n_process=nproc):
             _accumulate(stats, doc, bunsetu_spans, on_masked_line=on_masked_line,
                         collect_long=collect_long)
             if on_progress:
