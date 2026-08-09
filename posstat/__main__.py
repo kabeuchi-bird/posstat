@@ -173,7 +173,8 @@ def run(args: argparse.Namespace) -> int:
         json_path = export.write_json(stats, out_dir)
         rep.advance(t3)
         html_text = report_html.render(mecab, ginza, stats, heatmap=cfg["report"]["heatmap"],
-                                       min_count=cfg["analysis"]["min_count"])
+                                       min_count=cfg["analysis"]["min_count"],
+                                       pmi_threshold=cfg["analysis"]["pmi_threshold"])
         rep.advance(t3)
         html_path = report_html.write_html(html_text, out_dir)
         rep.advance(t3)

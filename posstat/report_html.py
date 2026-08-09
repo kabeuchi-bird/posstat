@@ -42,8 +42,13 @@ def _row_weights(pair_counter: Counter) -> Counter:
     return weights
 
 
-def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> str:
-    """ソート・フィルタ付きテーブルの HTML を返す。"""
+def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str,
+           col_filters: Optional[Sequence[int]] = None) -> str:
+    """ソート・フィルタ付きテーブルの HTML を返す。
+
+    col_filters に列番号を渡すと、行全体フィルタに加えてその列だけを対象にする
+    絞り込み欄を出す。複数指定した場合は AND で効く。
+    """
     th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
     body = []
     for row in rows:
@@ -57,8 +62,14 @@ def _table(headers: Sequence[str], rows: Sequence[Sequence], table_id: str) -> s
                 v = f"{v:.4f}" if abs(v) < 1000 else f"{v:.1f}"
             tds.append(f"<td{cls}>{_esc(v)}</td>")
         body.append("<tr>" + "".join(tds) + "</tr>")
+    filters = [f'<input class="filter" type="text" placeholder="フィルタ..." '
+               f'data-table="{table_id}">']
+    for col in col_filters or ():
+        label = _esc(headers[col])
+        filters.append(f'<input class="filter col" type="text" placeholder="{label} で絞込" '
+                       f'data-table="{table_id}" data-col="{col}">')
     return (
-        f'<input class="filter" type="text" placeholder="フィルタ..." data-table="{table_id}">'
+        f'<div class="filters">{"".join(filters)}</div>'
         f'<div class="tablewrap"><table class="sortable" id="{table_id}">'
         f"<thead><tr>{th}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
         f"<p class=\"rowcount\">{len(rows)} 行</p>"
@@ -205,6 +216,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:nth-child(even) { background: #fafafa; }
 .tablewrap { max-height: 30rem; overflow: auto; border: 1px solid #ddd; }
 .filter { margin: .4rem 0; padding: .2rem .4rem; width: 16rem; }
+.filters { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.filters .filter { margin: .4rem 0; }
+.filter.col { width: 9rem; }
 .rowcount, .note { color: #888; font-size: .8rem; }
 .bar { background: #eee; border-radius: .2rem; overflow: hidden; height: .7rem; min-width: 6rem; }
 .bar i { display: block; height: 100%; background: #4a6; }
@@ -252,10 +266,21 @@ $body
   });
   document.querySelectorAll("input.filter").forEach(function (input) {
     input.addEventListener("input", function () {
-      var q = input.value.toLowerCase();
-      var table = document.getElementById(input.dataset.table);
+      var id = input.dataset.table;
+      var table = document.getElementById(id);
+      // 同じ表に付く全フィルタ(行全体 + 列指定)を AND で適用する
+      var inputs = document.querySelectorAll('input.filter[data-table="' + id + '"]');
       Array.prototype.forEach.call(table.tBodies[0].rows, function (tr) {
-        tr.style.display = tr.textContent.toLowerCase().indexOf(q) >= 0 ? "" : "none";
+        var show = true;
+        Array.prototype.forEach.call(inputs, function (f) {
+          var q = f.value.toLowerCase();
+          if (!q) return;
+          var col = f.dataset.col;
+          var cell = col === undefined ? tr : tr.cells[col];
+          var text = cell ? cell.textContent.toLowerCase() : "";
+          if (text.indexOf(q) < 0) show = false;
+        });
+        tr.style.display = show ? "" : "none";
       });
     });
   });
@@ -292,10 +317,13 @@ def render(
     stats_json: Dict,
     heatmap: bool = True,
     min_count: int = 10,
+    pmi_threshold: float = -3.0,
 ) -> str:
     """レポート HTML 全体を組み立てて返す。セクションはタブで切り替える。
 
-    min_count は heatmap の淡色表示のしきい値(行の総頻度がこれ未満なら淡色)。
+    min_count は heatmap の淡色表示のしきい値(行の総頻度がこれ未満なら淡色)で、
+    「絶対来ない」ペアの期待頻度の下限としても注記に表示する。
+    pmi_threshold は同ペアの掲載基準(この値以下)で、注記への表示にのみ使う。
     """
     meta = stats_json["meta"]
     sections: List[tuple] = []
@@ -446,11 +474,24 @@ def render(
 
     # 10. 「絶対来ない」ペア(PMI下位)
     parts = begin("10. 「絶対来ない」ペア(PMI下位)")
-    parts.append("<p class=\"note\">隣接カナ全体(品詞内+境界跨ぎ)で期待頻度が基準以上なのに"
-                 "観測ゼロまたは低PMIのペア。pmi 空欄は観測ゼロ。</p>")
+    parts.append("<p class=\"note\">隣接カナ全体(品詞内+境界跨ぎ)を対象に、"
+                 "独立を仮定した期待より著しく現れにくいカナの並びを列挙する。</p>")
+    parts.append(
+        "<p class=\"note\"><b>PMI(自己相互情報量)</b> = "
+        "log<sub>2</sub>( P(先行と後続が隣接) / (P(先行) × P(後続)) )。"
+        "2つのカナが無関係に並ぶと仮定したときの期待確率に対し、実際の共起が何倍かを"
+        "log<sub>2</sub> で表す。0 なら期待どおり、正なら並びやすく、負なら並びにくい"
+        "(-1 で期待の 1/2、-3 で 1/8、-5 で 1/32)。"
+        f"この表には PMI が {pmi_threshold} 以下のペアを掲載する。"
+        "<b>PMI 空欄</b>は観測ゼロ(コーパス中で一度も隣接しなかった)。</p>")
+    parts.append(
+        f"<p class=\"note\"><b>期待頻度</b> = P(先行) × P(後続) × 隣接ペア総数。"
+        f"これが {min_count} 未満の組合せは標本が少なく偶然ゼロになりうるため、"
+        f"判定対象から除外している。</p>")
     fp_rows = [[p["a"], p["b"], "" if p["pmi"] is None else p["pmi"], p["expected"]]
                for p in stats_json["forbidden_pairs"]]
-    parts.append(_table(["先行カナ", "後続カナ", "PMI", "期待頻度"], fp_rows, "t-forbidden"))
+    parts.append(_table(["先行カナ", "後続カナ", "PMI", "期待頻度"], fp_rows, "t-forbidden",
+                        col_filters=[0, 1]))
 
     # 11. 「繋ぎの語」チャンク分析
     parts = begin("11. 「繋ぎの語」チャンク分析")
