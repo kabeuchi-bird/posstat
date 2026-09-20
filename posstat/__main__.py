@@ -16,15 +16,13 @@ import traceback
 from pathlib import Path
 from typing import Dict
 
-from . import __version__, export, mecab_stage, report_html
+from . import __version__, export, ginza_stage, mecab_stage, report_html
 from .progress import Reporter
 from .reader import InputError, collect_files, load_corpus
 
 DEFAULT_CONFIG: Dict = {
-    "input": {"encoding_fallback": True},
     "ginza": {"model": "ja_ginza", "batch_size": 128, "n_process": 0},
     "analysis": {"min_count": 10, "pmi_threshold": -3.0},
-    "report": {"heatmap": True},
     "progress": {"log_interval": 30},
 }
 
@@ -53,8 +51,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("corpus", help="コーパスの .txt ファイルまたはディレクトリ")
     ap.add_argument("-c", "--config", default=None, help="config.toml のパス")
     ap.add_argument("-o", "--output", default="output", help="出力ディレクトリ(既定: output/)")
-    ap.add_argument("--log-interval", type=float, default=None,
-                    help="非TTY時の行ログ間隔(秒)。config より優先")
     ap.add_argument(
         "--dump-tsunagi-text", action="store_true",
         help="「繋ぎの語」チャンクをカナ表記、それ以外を□で潰したテキストを"
@@ -71,7 +67,6 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def run(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
-    log_interval = args.log_interval or cfg["progress"]["log_interval"]
     out_dir = Path(args.output)
 
     # Stage 0: 読込・文分割 -----------------------------------------------
@@ -81,7 +76,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"入力エラー: {e}", file=sys.stderr)
         return 1
 
-    with Reporter(log_interval=log_interval) as rep:
+    with Reporter(log_interval=cfg["progress"]["log_interval"]) as rep:
         try:
             total_bytes = sum(f.stat().st_size for f in files)
         except OSError as e:
@@ -93,9 +88,7 @@ def run(args: argparse.Namespace) -> int:
         t3 = rep.add_task("集計・レポート生成", total=4, start=False)
 
         sentences, total_chars, n_read = load_corpus(
-            files,
-            encoding_fallback=cfg["input"]["encoding_fallback"],
-            on_bytes=lambda n: rep.advance(t0, n),
+            files, on_bytes=lambda n: rep.advance(t0, n)
         )
         rep.finish(t0)
         if n_read == 0 or not sentences:
@@ -114,16 +107,6 @@ def run(args: argparse.Namespace) -> int:
             return 2
 
         # Stage 2: GiNZA --------------------------------------------------
-        try:
-            from . import ginza_stage
-        except ImportError:
-            print(
-                "解析エラー (Stage 2): ginza_stage モジュールの読み込みに失敗しました。\n"
-                "  pip install ja-ginza  で GiNZA と依存パッケージを導入してください。",
-                file=sys.stderr,
-            )
-            traceback.print_exc()
-            return 2
         tsunagi_file = None
         if args.dump_tsunagi_text:
             tsunagi_path = out_dir / "tsunagi_masked.txt"
@@ -142,13 +125,6 @@ def run(args: argparse.Namespace) -> int:
                 collect_long=args.long_bunsetsu,
             )
             rep.finish(t2)
-        except ImportError as e:
-            print(
-                f"解析エラー (Stage 2 / GiNZA): 依存パッケージが不足しています。\n  {e}\n"
-                "  pip install ja-ginza click  を実行してください。",
-                file=sys.stderr,
-            )
-            return 2
         except Exception:
             print("解析エラー (Stage 2 / GiNZA):", file=sys.stderr)
             traceback.print_exc()
@@ -172,7 +148,7 @@ def run(args: argparse.Namespace) -> int:
         rep.advance(t3)
         json_path = export.write_json(stats, out_dir)
         rep.advance(t3)
-        html_text = report_html.render(mecab, ginza, stats, heatmap=cfg["report"]["heatmap"],
+        html_text = report_html.render(mecab, ginza, stats,
                                        min_count=cfg["analysis"]["min_count"])
         rep.advance(t3)
         html_path = report_html.write_html(html_text, out_dir)

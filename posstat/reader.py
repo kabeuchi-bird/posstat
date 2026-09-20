@@ -1,6 +1,6 @@
 """Stage 0: コーパス走査・デコード・文分割。
 
-- UTF-8 既定、失敗時は charset-normalizer で判定(config で無効化可)
+- UTF-8 既定、失敗時は charset-normalizer で判定
 - NFKC 正規化は行わない(！？…『』を保持)。BOM 除去のみ
 - 文分割は正規表現(。！？… + 閉じ括弧の後処理)
 """
@@ -33,7 +33,7 @@ def collect_files(corpus_path: str) -> List[Path]:
     raise InputError(f"入力パスが存在しません: {corpus_path}")
 
 
-def decode_file(path: Path, encoding_fallback: bool = True) -> Optional[str]:
+def decode_file(path: Path) -> Optional[str]:
     """ファイルをデコードして返す。判定不能や I/O 失敗なら警告して None(スキップ)。"""
     try:
         raw = path.read_bytes()
@@ -43,9 +43,6 @@ def decode_file(path: Path, encoding_fallback: bool = True) -> Optional[str]:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        if not encoding_fallback:
-            print(f"警告: UTF-8 でデコードできずスキップ: {path}", file=sys.stderr)
-            return None
         from charset_normalizer import from_bytes
 
         best = from_bytes(raw).best()
@@ -76,7 +73,6 @@ def split_sentences(text: str) -> Iterator[str]:
 
 def load_corpus(
     files: List[Path],
-    encoding_fallback: bool = True,
     on_bytes: Optional[Callable[[int], None]] = None,
 ) -> Tuple[List[str], int, int]:
     """全ファイルを読み、(文リスト, 総文字数, 読込ファイル数) を返す。
@@ -94,7 +90,7 @@ def load_corpus(
         except OSError as e:
             print(f"警告: ファイル情報を取得できずスキップ: {path} ({e})", file=sys.stderr)
             continue
-        text = decode_file(path, encoding_fallback)
+        text = decode_file(path)
         if text is not None:
             n_read += 1
             total_chars += len(text)
