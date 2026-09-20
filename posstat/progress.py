@@ -7,92 +7,62 @@ TTY では rich.progress の複数バー表示(パーセンテージ / ETA 内�
 
 from __future__ import annotations
 
-import sys
 import time
-from typing import Dict, Optional
+from typing import Optional
+
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TimeRemainingColumn
 
 
 class Reporter:
-    """rich Progress の薄いラッパ。非TTYでは行ログにフォールバックする。"""
+    """rich Progress の薄いラッパ。非TTY では定期的に行ログを出す。"""
 
     def __init__(self, log_interval: float = 30.0):
-        from rich.console import Console
-
         self._console = Console(stderr=True)
-        self._is_tty = self._console.is_terminal
         self._log_interval = max(1.0, float(log_interval))
-        self._progress = None
-        self._tasks: Dict[int, dict] = {}
-        self._next_id = 0
         self._last_log = 0.0
+        self._progress = Progress(
+            "[bold]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=self._console,
+        )
 
     def __enter__(self) -> "Reporter":
-        if self._is_tty:
-            from rich.progress import (
-                BarColumn,
-                Progress,
-                TaskProgressColumn,
-                TimeRemainingColumn,
-            )
-
-            self._progress = Progress(
-                "[bold]{task.description}",
-                BarColumn(),
-                TaskProgressColumn(),
-                TimeRemainingColumn(),
-                console=self._console,
-            )
-            self._progress.__enter__()
+        self._progress.__enter__()
         return self
 
     def __exit__(self, *exc) -> None:
-        if self._progress is not None:
-            self._progress.__exit__(*exc)
+        self._progress.__exit__(*exc)
 
     def add_task(self, description: str, total: Optional[float], start: bool = True) -> int:
-        if self._progress is not None:
-            return self._progress.add_task(description, total=total, start=start)
-        task_id = self._next_id
-        self._next_id += 1
-        self._tasks[task_id] = {"desc": description, "total": total, "done": 0.0}
-        return task_id
+        return self._progress.add_task(description, total=total, start=start)
 
     def start_task(self, task_id: int, total: Optional[float] = None) -> None:
-        if self._progress is not None:
-            if total is not None:
-                self._progress.update(task_id, total=total)
-            self._progress.start_task(task_id)
-            return
         if total is not None:
-            self._tasks[task_id]["total"] = total
+            self._progress.update(task_id, total=total)
+        self._progress.start_task(task_id)
 
     def advance(self, task_id: int, n: float = 1) -> None:
-        if self._progress is not None:
-            self._progress.advance(task_id, n)
-            return
-        t = self._tasks[task_id]
-        t["done"] += n
-        now = time.monotonic()
-        if now - self._last_log >= self._log_interval:
-            self._last_log = now
-            self._log(t)
+        self._progress.advance(task_id, n)
+        self._log(task_id)
 
     def finish(self, task_id: int) -> None:
-        if self._progress is not None:
-            task = self._progress.tasks[task_id]
-            if task.total is not None:
-                self._progress.update(task_id, completed=task.total)
-            return
-        t = self._tasks[task_id]
-        if t["total"] is not None:
-            t["done"] = t["total"]
-        self._log(t)
+        task = self._progress.tasks[task_id]
+        if task.total is not None:
+            self._progress.update(task_id, completed=task.total)
+        self._log(task_id, force=True)
 
-    @staticmethod
-    def _log(t: dict) -> None:
-        total = t["total"]
-        if total:
-            pct = 100.0 * t["done"] / total
-            print(f"[posstat] {t['desc']}: {int(t['done'])}/{int(total)} ({pct:.0f}%)", file=sys.stderr)
-        else:
-            print(f"[posstat] {t['desc']}: {int(t['done'])}", file=sys.stderr)
+    def _log(self, task_id: int, force: bool = False) -> None:
+        """非TTY のときだけ、log_interval 秒ごと(と各段の完了時)に1行出す。"""
+        if self._console.is_terminal:
+            return
+        now = time.monotonic()
+        if not force and now - self._last_log < self._log_interval:
+            return
+        self._last_log = now
+        t = self._progress.tasks[task_id]
+        done = f"{int(t.completed)}/{int(t.total)} ({t.percentage:.0f}%)" if t.total \
+            else f"{int(t.completed)}"
+        self._console.print(f"[posstat] {t.description}: {done}", markup=False)

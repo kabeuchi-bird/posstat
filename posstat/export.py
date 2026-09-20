@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict
 
 from . import aggregate
 from .mecab_stage import MecabStats
@@ -45,8 +45,6 @@ if TYPE_CHECKING:
     from .ginza_stage import GinzaStats
 
 # GiNZA 由来の出力キー(= GinzaStats の同名 Counter 属性)と正規化関数。
-# Stage 2 未実行時は空 dict を出す(キー自体は常に存在させ、Rust 側の
-# 構造体定義を安定させる)
 _GINZA_EXPORTS: Dict[str, Callable] = {
     "bunsetsu_head_kana": aggregate.distribution,
     "bunsetsu_tail_kana": aggregate.distribution,
@@ -68,7 +66,7 @@ _GINZA_EXPORTS: Dict[str, Callable] = {
 
 def build_stats(
     mecab: MecabStats,
-    ginza: Optional[GinzaStats],
+    ginza: GinzaStats,
     total_chars: int,
     n_sentences: int,
     n_files: int = 0,
@@ -94,7 +92,7 @@ def build_stats(
         "forbidden_pairs": aggregate.forbidden_pairs(adjacency, pmi_threshold, min_count),
     }
     for key, normalize in _GINZA_EXPORTS.items():
-        stats[key] = normalize(getattr(ginza, key)) if ginza is not None else {}
+        stats[key] = normalize(getattr(ginza, key))
     return stats
 
 
