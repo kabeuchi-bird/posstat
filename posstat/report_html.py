@@ -2,13 +2,12 @@
 
 - テンプレート: 標準 string.Template(jinja2 不要)
 - 表: 素の JS 数十行でクリックソート + テキストフィルタ。min_count で切らず全量掲載
-- heatmap: matplotlib(必須依存)→ PNG → base64 埋め込み(config で off 可)
+- heatmap: 遷移行列表のセル背景を CSS で濃淡表示(画像・matplotlib 不要)
 """
 
 from __future__ import annotations
 
 import html
-import sys
 from collections import Counter
 from pathlib import Path
 from string import Template
@@ -28,10 +27,9 @@ class _Raw(str):
     """_table 内でエスケープせずそのまま出力するマーカー文字列。"""
 
 
-def _bar_cell(ratio: float, scale: float = 1.0) -> _Raw:
-    """比率を横棒で可視化するセルの HTML。scale(列の最大値)を全幅とする相対表示。"""
-    pct = max(0.0, min(1.0, ratio / scale if scale else 0.0)) * 100
-    return _Raw(f'<div class="bar"><i style="width:{pct:.1f}%"></i></div>')
+def _bar_cell(ratio: float, scale: float) -> _Raw:
+    """比率を横棒で可視化するセル。scale(列の最大値)を全幅とする相対表示。"""
+    return _Raw(f'<meter value="{ratio:.6f}" max="{scale:.6f}"></meter>')
 
 
 def _row_weights(pair_counter: Counter) -> Counter:
@@ -80,9 +78,6 @@ def _counter_rows(counter: Counter, limit: Optional[int] = None) -> List[List]:
 # 上位のみ載せる。全量は stats.json 側にある
 _TABLE_ROW_LIMIT = 3000
 
-_STAGE2_NOTE = "<p class=\"note\">Stage 2(GiNZA)が実行されていません。</p>"
-
-
 def _limit_note(counter: Counter) -> str:
     if len(counter) <= _TABLE_ROW_LIMIT:
         return ""
@@ -96,95 +91,43 @@ def _trigram_table(counter: Counter, table_id: str) -> str:
                                          table_id)
 
 
-def _matrix_table(matrix: Dict[str, Dict[str, float]], table_id: str, limit: int = 40) -> str:
-    """行方向正規化済み遷移行列を表にする。列数が多い場合は頻度上位に絞る。"""
+_MATRIX_COL_LIMIT = 40
+_HEAT_RGB = (68, 170, 102)  # セル背景の最濃色(ページのアクセント色 #4a6)
+
+
+def _heat_cell(p: float, vmax: float, faded: bool) -> _Raw:
+    """確率を背景の濃淡で示すセル。vmax を最濃とし、平方根で低確率側を見やすくする。"""
+    t = (p / vmax) ** 0.5 if vmax > 0 else 0.0
+    if faded:
+        t *= 0.25  # 標本不足の行は薄く
+    r, g, b = (round(255 - (255 - c) * t) for c in _HEAT_RGB)
+    return _Raw(f'<span class="heat" style="background:rgb({r},{g},{b})">{p:.4f}</span>')
+
+
+def _matrix_table(matrix: Dict[str, Dict[str, float]], table_id: str,
+                  row_weights: Counter, min_count: int) -> str:
+    """行方向正規化済み遷移行列を、セル背景の濃淡付き(= heatmap)の表にする。
+
+    列数が多い場合は頻度上位に絞る。行の総頻度が min_count 未満の行は淡色表示にする
+    (確率は行内正規化のため、標本の少ない行の濃いセルは信頼できない)。
+    """
     col_weight: Counter = Counter()
     for row in matrix.values():
         for b, p in row.items():
             col_weight[b] += p
-    cols = [c for c, _ in col_weight.most_common(limit)]
-    headers = [""] + cols
+    cols = [c for c, _ in col_weight.most_common(_MATRIX_COL_LIMIT)]
+    vmax = max((p for row in matrix.values() for p in row.values()), default=0.0)
     rows = []
     for a in sorted(matrix, key=lambda k: -sum(matrix[k].values())):
-        rows.append([a] + [round(matrix[a].get(c, 0.0), 4) for c in cols])
-    note = ""
-    if len(col_weight) > limit:
-        note = f"<p class=\"note\">列は上位 {limit} 件のみ表示(全 {len(col_weight)} 列)。全量は stats.json を参照。</p>"
-    return note + _table(headers, rows, table_id)
-
-
-def _heatmap_png(
-    matrix: Dict[str, Dict[str, float]],
-    title: str,
-    row_weights: Optional[Counter] = None,
-    min_count: int = 0,
-) -> Optional[str]:
-    """遷移行列の heatmap を base64 PNG で返す。
-
-    row_weights を渡すと、行の総頻度が min_count 未満の行を淡色表示にする
-    (確率は行内正規化のため、標本の少ない行の濃いセルは信頼できない)。
-
-    matplotlib は必須依存だが、万一インポートできない環境でも
-    解析結果(表・JSON)を失わないよう heatmap だけスキップして続行する。
-    """
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("警告: 必須依存 matplotlib を読み込めません。heatmap を省略します。"
-              "`pip install -e .` でインストールを修復してください", file=sys.stderr)
-        return None
-    import base64
-    import io
-    import warnings
-
-    from matplotlib import font_manager
-
-    # 日本語グリフを持つフォントがあれば使う。無ければ豆腐警告だけ抑制して続行
-    available = {f.name for f in font_manager.fontManager.ttflist}
-    for name in ("Noto Sans CJK JP", "Noto Sans JP", "IPAexGothic", "IPAGothic",
-                 "Hiragino Sans", "Yu Gothic", "Meiryo", "MS Gothic",
-                 "TakaoGothic", "VL Gothic"):
-        if name in available:
-            matplotlib.rcParams["font.family"] = name
-            break
-    else:
-        print("警告: 日本語フォント未検出。heatmap のラベルが欠ける場合があります", file=sys.stderr)
-    warnings.filterwarnings("ignore", message="Glyph .* missing from font")
-
-    import numpy as np
-
-    labels = sorted(matrix)
-    if not labels:
-        return None
-    data = np.array([[matrix.get(a, {}).get(b, 0.0) for b in labels] for a in labels])
-    norm = matplotlib.colors.Normalize(vmin=0.0, vmax=float(data.max()) or 1.0)
-    cmap = matplotlib.colormaps["viridis"]
-    rgba = cmap(norm(data))
-    faded = [row_weights is not None and row_weights.get(a, 0) < min_count
-             for a in labels]
-    for i, fade in enumerate(faded):
-        if fade:
-            rgba[i, :, :3] = rgba[i, :, :3] * 0.25 + 0.75  # 白へブレンド
-    fig, ax = plt.subplots(figsize=(max(6, len(labels) * 0.5), max(5, len(labels) * 0.45)))
-    ax.imshow(rgba, aspect="auto")
-    ax.set_xticks(range(len(labels)))
-    ax.set_yticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=90, fontsize=8)
-    ax.set_yticklabels(labels, fontsize=8)
-    for tick, fade in zip(ax.get_yticklabels(), faded):
-        if fade:
-            tick.set_color("#999999")
-    ax.set_title(title)
-    fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, shrink=0.8)
-    fig.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110)
-    plt.close(fig)
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f'<img alt="{_esc(title)}" src="data:image/png;base64,{b64}">'
+        faded = row_weights.get(a, 0) < min_count
+        label = _Raw(f'<span class="faded">{_esc(a)}</span>') if faded else a
+        rows.append([label] + [_heat_cell(matrix[a].get(c, 0.0), vmax, faded) for c in cols])
+    note = (f"<p class=\"note\">セル背景は P(次|前) の濃淡(最大値を最濃とし平方根スケール)。"
+            f"総頻度が {min_count} 未満の行(先行品詞)は標本不足のため淡色表示。</p>")
+    if len(col_weight) > _MATRIX_COL_LIMIT:
+        note += (f"<p class=\"note\">列は上位 {_MATRIX_COL_LIMIT} 件のみ表示"
+                 f"(全 {len(col_weight)} 列)。全量は stats.json を参照。</p>")
+    return note + _table([""] + cols, rows, table_id)
 
 
 _PAGE = Template("""<!DOCTYPE html>
@@ -206,9 +149,9 @@ tr:nth-child(even) { background: #fafafa; }
 .tablewrap { max-height: 30rem; overflow: auto; border: 1px solid #ddd; }
 .filter { margin: .4rem 0; padding: .2rem .4rem; width: 16rem; }
 .rowcount, .note { color: #888; font-size: .8rem; }
-.bar { background: #eee; border-radius: .2rem; overflow: hidden; height: .7rem; min-width: 6rem; }
-.bar i { display: block; height: 100%; background: #4a6; }
-img { max-width: 100%; }
+meter { width: 6rem; vertical-align: middle; }
+.heat { display: block; margin: -.2rem -.5rem; padding: .2rem .5rem; text-align: right; }
+.faded { color: #999; }
 dl.meta { display: grid; grid-template-columns: 12rem 1fr; gap: .2rem .8rem; }
 dl.meta dt { font-weight: bold; }
 nav.tabs { display: flex; flex-wrap: wrap; gap: .3rem; position: sticky; top: 0;
@@ -288,14 +231,13 @@ $body
 
 def render(
     mecab: MecabStats,
-    ginza: Optional[GinzaStats],
+    ginza: GinzaStats,
     stats_json: Dict,
-    heatmap: bool = True,
     min_count: int = 10,
 ) -> str:
     """レポート HTML 全体を組み立てて返す。セクションはタブで切り替える。
 
-    min_count は heatmap の淡色表示のしきい値(行の総頻度がこれ未満なら淡色)。
+    min_count は遷移行列の淡色表示のしきい値(行の総頻度がこれ未満なら淡色)。
     """
     meta = stats_json["meta"]
     sections: List[tuple] = []
@@ -328,16 +270,8 @@ def render(
 
     # 3. 品詞遷移確率行列
     parts = begin("3. 品詞遷移確率行列")
-    pos_matrix = stats_json["pos_transition"]
-    if heatmap:
-        img = _heatmap_png(pos_matrix, "POS transition P(next | prev)",
-                           row_weights=_row_weights(mecab.pos_bigram),
-                           min_count=min_count)
-        if img:
-            parts.append(img)
-            parts.append(f"<p class=\"note\">総頻度が {min_count} 未満の行(先行品詞)は"
-                         "標本不足のため淡色表示(ラベルもグレー)。</p>")
-    parts.append(_matrix_table(pos_matrix, "t-postrans"))
+    parts.append(_matrix_table(stats_json["pos_transition"], "t-postrans",
+                               _row_weights(mecab.pos_bigram), min_count))
 
     # 4. 品詞3-gram上位
     parts = begin("4. 品詞3-gram")
@@ -368,81 +302,67 @@ def render(
 
     # 8. 文節統計
     parts = begin("8. 文節統計")
-    if ginza is None:
-        parts.append(_STAGE2_NOTE)
-    else:
-        parts.append("<h3>文節頭カナ</h3>")
-        parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_head_kana), "t-bhead"))
-        parts.append("<h3>文節尻カナ</h3>")
-        parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_tail_kana), "t-btail"))
-        parts.append("<h3>文節長分布(空白・記号を除く表層文字数)</h3>")
-        len_rows = sorted(_counter_rows(ginza.bunsetsu_len_dist), key=lambda r: r[0])
-        parts.append(_table(["文字数", "頻度", "比率"], len_rows, "t-blen"))
-        parts.append("<h3>文節長分布(読みのカナ文字数)</h3>")
-        parts.append("<p class=\"note\">打鍵数に対応する長さ。読みは Reading を優先し、"
-                     "無い場合は表層を平仮名→カタカナ変換して用いる。"
-                     "カナに変換できない文字(ラテン文字など)は落ちるため、"
-                     "英字を含む文節は表層文字数より短くなる"
-                     "(programming→プログラミング=7、読みの無い Gatsby→0)。"
-                     "カナが空になった文節のみ分布から除外される。</p>")
-        kana_len_rows = sorted(_counter_rows(ginza.bunsetsu_kana_len_dist), key=lambda r: r[0])
-        parts.append(_table(["カナ文字数", "頻度", "比率"], kana_len_rows, "t-bkanalen"))
-        if ginza.long_bunsetsu:
-            parts.append("<h3>最長文節の実例(診断)</h3>")
-            parts.append("<p class=\"note\">--long-bunsetsu N 指定時のみ収集。"
-                         "文字数は空白・記号を除く表層文字数。</p>")
-            parts.append(_table(["文字数", "文節(表層)", "トークン内訳"],
-                                list(ginza.long_bunsetsu), "t-blong"))
-        parts.append("<h3>文節内カナ2-gram(上位)</h3>")
-        parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
-                            _counter_rows(ginza.kana_bigram_within_bunsetsu), "t-bwithin"))
-        parts.append("<h3>文節境界跨ぎカナ2-gram(上位)</h3>")
-        parts.append(_table(["尻カナ", "頭カナ", "頻度", "比率"],
-                            _counter_rows(ginza.kana_bigram_cross_bunsetsu), "t-bcross"))
-        parts.append("<h3>文節内カナ3-gram(上位)</h3>")
-        parts.append(_trigram_table(ginza.kana_trigram_within_bunsetsu, "t-bwithin3"))
-        parts.append("<h3>文節境界跨ぎカナ3-gram(上位)</h3>")
-        parts.append("<p class=\"note\">境界を跨ぐ3-gramは、前文節尻2カナ+後文節頭1カナ、"
-                     "および前文節尻1カナ+後文節頭2カナの両方を数える。</p>")
-        parts.append(_trigram_table(ginza.kana_trigram_cross_bunsetsu, "t-bcross3"))
-        parts.append("<h3>文節先頭品詞の遷移</h3>")
-        bpos_matrix = stats_json["bunsetsu_head_pos_transition"]
-        if heatmap:
-            img = _heatmap_png(bpos_matrix, "Bunsetsu-head POS transition P(next | prev)",
-                               row_weights=_row_weights(ginza.bunsetsu_head_pos_transition),
-                               min_count=min_count)
-            if img:
-                parts.append(img)
-                parts.append(f"<p class=\"note\">総頻度が {min_count} 未満の行(先行品詞)は"
-                             "標本不足のため淡色表示(ラベルもグレー)。</p>")
-        parts.append(_matrix_table(bpos_matrix, "t-bpos"))
+    parts.append("<h3>文節頭カナ</h3>")
+    parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_head_kana), "t-bhead"))
+    parts.append("<h3>文節尻カナ</h3>")
+    parts.append(_table(["カナ", "頻度", "比率"], _counter_rows(ginza.bunsetsu_tail_kana), "t-btail"))
+    parts.append("<h3>文節長分布(空白・記号を除く表層文字数)</h3>")
+    len_rows = sorted(_counter_rows(ginza.bunsetsu_len_dist), key=lambda r: r[0])
+    parts.append(_table(["文字数", "頻度", "比率"], len_rows, "t-blen"))
+    parts.append("<h3>文節長分布(読みのカナ文字数)</h3>")
+    parts.append("<p class=\"note\">打鍵数に対応する長さ。読みは Reading を優先し、"
+                 "無い場合は表層を平仮名→カタカナ変換して用いる。"
+                 "カナに変換できない文字(ラテン文字など)は落ちるため、"
+                 "英字を含む文節は表層文字数より短くなる"
+                 "(programming→プログラミング=7、読みの無い Gatsby→0)。"
+                 "カナが空になった文節のみ分布から除外される。</p>")
+    kana_len_rows = sorted(_counter_rows(ginza.bunsetsu_kana_len_dist), key=lambda r: r[0])
+    parts.append(_table(["カナ文字数", "頻度", "比率"], kana_len_rows, "t-bkanalen"))
+    if ginza.long_bunsetsu:
+        parts.append("<h3>最長文節の実例(診断)</h3>")
+        parts.append("<p class=\"note\">--long-bunsetsu N 指定時のみ収集。"
+                     "文字数は空白・記号を除く表層文字数。</p>")
+        parts.append(_table(["文字数", "文節(表層)", "トークン内訳"],
+                            list(ginza.long_bunsetsu), "t-blong"))
+    parts.append("<h3>文節内カナ2-gram(上位)</h3>")
+    parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
+                        _counter_rows(ginza.kana_bigram_within_bunsetsu), "t-bwithin"))
+    parts.append("<h3>文節境界跨ぎカナ2-gram(上位)</h3>")
+    parts.append(_table(["尻カナ", "頭カナ", "頻度", "比率"],
+                        _counter_rows(ginza.kana_bigram_cross_bunsetsu), "t-bcross"))
+    parts.append("<h3>文節内カナ3-gram(上位)</h3>")
+    parts.append(_trigram_table(ginza.kana_trigram_within_bunsetsu, "t-bwithin3"))
+    parts.append("<h3>文節境界跨ぎカナ3-gram(上位)</h3>")
+    parts.append("<p class=\"note\">境界を跨ぐ3-gramは、前文節尻2カナ+後文節頭1カナ、"
+                 "および前文節尻1カナ+後文節頭2カナの両方を数える。</p>")
+    parts.append(_trigram_table(ginza.kana_trigram_cross_bunsetsu, "t-bcross3"))
+    parts.append("<h3>文節先頭品詞の遷移</h3>")
+    parts.append(_matrix_table(stats_json["bunsetsu_head_pos_transition"], "t-bpos",
+                               _row_weights(ginza.bunsetsu_head_pos_transition), min_count))
 
     # 9. 係り受けラベル頻度
     parts = begin("9. 係り受けラベル頻度")
-    if ginza is None:
-        parts.append(_STAGE2_NOTE)
-    else:
-        parts.append(
-            "<p class=\"note\">depラベルは Universal Dependencies(UD)の統語関係ラベル"
-            "(GiNZA は日本語 UD 準拠)。各ラベルの意味は"
-            " <a href=\"https://masayu-a.github.io/UD_Japanese-docs/u/dep/all.html\""
-            " target=\"_blank\" rel=\"noopener\">UD 公式ドキュメント日本語訳(関係ラベル一覧)</a>"
-            " / <a href=\"https://universaldependencies.org/u/dep/all.html\""
-            " target=\"_blank\" rel=\"noopener\">英語原文</a> を参照。</p>")
-        dep_only: Counter = Counter()
-        for (dep, _src, _dst), cnt in ginza.dep_pos_pairs.items():
-            dep_only[dep] += cnt
-        parts.append("<h3>depラベル別頻度(概要)</h3>")
-        parts.append("<p class=\"note\">分布バーは最大値を全幅とする相対表示"
-                     "(絶対値は「比率」列を参照)。</p>")
-        dep_data = _counter_rows(dep_only)
-        max_ratio = dep_data[0][2] if dep_data else 1.0  # most_common 順で先頭が最大
-        dep_rows = [[dep, cnt, ratio, _bar_cell(ratio, max_ratio)]
-                    for dep, cnt, ratio in dep_data]
-        parts.append(_table(["depラベル", "頻度", "比率", "分布"], dep_rows, "t-dep-summary"))
-        parts.append("<h3>係り元品詞→係り先品詞の内訳(詳細)</h3>")
-        parts.append(_table(["depラベル", "係り元品詞", "係り先品詞", "頻度", "比率"],
-                            _counter_rows(ginza.dep_pos_pairs), "t-dep"))
+    parts.append(
+        "<p class=\"note\">depラベルは Universal Dependencies(UD)の統語関係ラベル"
+        "(GiNZA は日本語 UD 準拠)。各ラベルの意味は"
+        " <a href=\"https://masayu-a.github.io/UD_Japanese-docs/u/dep/all.html\""
+        " target=\"_blank\" rel=\"noopener\">UD 公式ドキュメント日本語訳(関係ラベル一覧)</a>"
+        " / <a href=\"https://universaldependencies.org/u/dep/all.html\""
+        " target=\"_blank\" rel=\"noopener\">英語原文</a> を参照。</p>")
+    dep_only: Counter = Counter()
+    for (dep, _src, _dst), cnt in ginza.dep_pos_pairs.items():
+        dep_only[dep] += cnt
+    parts.append("<h3>depラベル別頻度(概要)</h3>")
+    parts.append("<p class=\"note\">分布バーは最大値を全幅とする相対表示"
+                 "(絶対値は「比率」列を参照)。</p>")
+    dep_data = _counter_rows(dep_only)
+    max_ratio = dep_data[0][2] if dep_data else 1.0  # most_common 順で先頭が最大
+    dep_rows = [[dep, cnt, ratio, _bar_cell(ratio, max_ratio)]
+                for dep, cnt, ratio in dep_data]
+    parts.append(_table(["depラベル", "頻度", "比率", "分布"], dep_rows, "t-dep-summary"))
+    parts.append("<h3>係り元品詞→係り先品詞の内訳(詳細)</h3>")
+    parts.append(_table(["depラベル", "係り元品詞", "係り先品詞", "頻度", "比率"],
+                        _counter_rows(ginza.dep_pos_pairs), "t-dep"))
 
     # 10. 「絶対来ない」ペア(PMI下位)
     parts = begin("10. 「絶対来ない」ペア(PMI下位)")
@@ -454,35 +374,32 @@ def render(
 
     # 11. 「繋ぎの語」チャンク分析
     parts = begin("11. 「繋ぎの語」チャンク分析")
-    if ginza is None:
-        parts.append(_STAGE2_NOTE)
-    else:
-        parts.append(
-            "<p class=\"note\">抽出ルール(deprel: case/mark/aux/cop/cc/"
-            "discourse/fixed、指示代名詞、形式名詞、接続副詞、補助動詞)で各トークンを"
-            "「繋ぎの語」か判定し、連続する繋ぎ語を膠着させて1塊(チャンク)として扱う。"
-            "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
-        parts.append("<h3>繋ぎチャンク頻度(連結カナ)</h3>")
-        parts.append(_limit_note(ginza.tsunagi_chunk_freq))
-        tsunagi_rows = [[k, len(k), c, r] for [k, c, r]
-                        in _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT)]
-        parts.append(_table(["チャンク(カナ)", "文字数", "頻度", "比率"],
-                            tsunagi_rows, "t-tsunagi-freq"))
-        parts.append("<h3>繋ぎチャンク内カナ2-gram</h3>")
-        parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
-                            _counter_rows(ginza.kana_bigram_within_tsunagi), "t-tsunagi-bi"))
-        parts.append("<h3>繋ぎチャンク内カナ3-gram</h3>")
-        parts.append(_trigram_table(ginza.kana_trigram_within_tsunagi, "t-tsunagi-tri"))
-        parts.append("<h3>内容チャンク内カナ2-gram</h3>")
-        parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
-                            _counter_rows(ginza.kana_bigram_within_content), "t-content-bi"))
-        parts.append("<h3>内容チャンク内カナ3-gram</h3>")
-        parts.append(_trigram_table(ginza.kana_trigram_within_content, "t-content-tri"))
-        parts.append("<h3>チャンク境界跨ぎカナ2-gram</h3>")
-        parts.append(_table(["尻カナ", "頭カナ", "頻度", "比率"],
-                            _counter_rows(ginza.kana_bigram_cross_chunk), "t-chunk-cross-bi"))
-        parts.append("<h3>チャンク境界跨ぎカナ3-gram</h3>")
-        parts.append(_trigram_table(ginza.kana_trigram_cross_chunk, "t-chunk-cross-tri"))
+    parts.append(
+        "<p class=\"note\">抽出ルール(deprel: case/mark/aux/cop/cc/"
+        "discourse/fixed、指示代名詞、形式名詞、接続副詞、補助動詞)で各トークンを"
+        "「繋ぎの語」か判定し、連続する繋ぎ語を膠着させて1塊(チャンク)として扱う。"
+        "塊内のカナ連接と、塊境界を跨ぐ連接を集計する。句読点・記号はチャンク境界。</p>")
+    parts.append("<h3>繋ぎチャンク頻度(連結カナ)</h3>")
+    parts.append(_limit_note(ginza.tsunagi_chunk_freq))
+    tsunagi_rows = [[k, len(k), c, r] for [k, c, r]
+                    in _counter_rows(ginza.tsunagi_chunk_freq, limit=_TABLE_ROW_LIMIT)]
+    parts.append(_table(["チャンク(カナ)", "文字数", "頻度", "比率"],
+                        tsunagi_rows, "t-tsunagi-freq"))
+    parts.append("<h3>繋ぎチャンク内カナ2-gram</h3>")
+    parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
+                        _counter_rows(ginza.kana_bigram_within_tsunagi), "t-tsunagi-bi"))
+    parts.append("<h3>繋ぎチャンク内カナ3-gram</h3>")
+    parts.append(_trigram_table(ginza.kana_trigram_within_tsunagi, "t-tsunagi-tri"))
+    parts.append("<h3>内容チャンク内カナ2-gram</h3>")
+    parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
+                        _counter_rows(ginza.kana_bigram_within_content), "t-content-bi"))
+    parts.append("<h3>内容チャンク内カナ3-gram</h3>")
+    parts.append(_trigram_table(ginza.kana_trigram_within_content, "t-content-tri"))
+    parts.append("<h3>チャンク境界跨ぎカナ2-gram</h3>")
+    parts.append(_table(["尻カナ", "頭カナ", "頻度", "比率"],
+                        _counter_rows(ginza.kana_bigram_cross_chunk), "t-chunk-cross-bi"))
+    parts.append("<h3>チャンク境界跨ぎカナ3-gram</h3>")
+    parts.append(_trigram_table(ginza.kana_trigram_cross_chunk, "t-chunk-cross-tri"))
 
     tabs: List[str] = []
     panels: List[str] = []

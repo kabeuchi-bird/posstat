@@ -21,8 +21,7 @@ pip install -e .
 ```
 
 これで fugashi(unidic-lite 同梱)、ja_ginza(spacy 同時導入)、rich、
-charset-normalizer、matplotlib がすべて入ります。追加の選択は不要です。
-heatmap が不要な場合は config.toml の `[report] heatmap = false` で無効化できます。
+charset-normalizer がすべて入ります。追加の選択は不要です。
 
 ### 使用ライブラリ
 
@@ -32,7 +31,6 @@ heatmap が不要な場合は config.toml の `[report] heatmap = false` で無�
 - **spacy** — GiNZA の土台となる NLP フレームワーク(ja-ginza と同時に導入される)
 - **rich** — ターミナルのプログレスバー表示(非TTY では行ログに自動フォールバック)
 - **charset-normalizer** — UTF-8 でデコードできないファイルのエンコーディング推定
-- **matplotlib** — 品詞遷移行列 heatmap の PNG 描画(HTML に base64 埋め込み)
 - **tomli** — Python 3.10 以前での config.toml 読込(3.11+ は標準 tomllib を使用)
 
 > **注意**: Arch Linux など PEP 668 準拠の環境ではシステム Python への直接インストールが
@@ -47,7 +45,6 @@ python -m posstat CORPUS_PATH [-c config.toml] [-o output/]
 - `CORPUS_PATH`: `.txt` ファイル 1 つ、またはディレクトリ(再帰的に `*.txt` を走査)
 - `-c/--config`: 設定ファイル(省略時は既定値で動作)
 - `-o/--output`: 出力ディレクトリ(既定: `output/`)
-- `--log-interval N`: 非TTY時の行ログ間隔(秒)
 - `--dump-tsunagi-text`: 「繋ぎの語」チャンクをカナ表記、それ以外を `□` で潰したテキストを
   `output/tsunagi_masked.txt` に文単位で出力(Stage 2 実行時のみ)。判定ルールの目視確認用
 - `--long-bunsetsu N`: 診断用に最長文節の実例 上位 N 件(表層とトークン内訳)を収集し、
@@ -74,9 +71,6 @@ Stage 2: 文節・係り受け   ━━━━━━╺━━━  62% 0:07:12
 ## 設定 (config.toml)
 
 ```toml
-[input]
-encoding_fallback = true   # UTF-8 失敗時に charset-normalizer で判定
-
 [ginza]
 model = "ja_ginza"         # "ja_ginza_electra" に切替可
 batch_size = 128
@@ -85,9 +79,6 @@ n_process = 0              # 0 = cpu_count - 1
 [analysis]
 min_count = 10             # PMI 判定の信頼性下限: P(x)P(y)×総数 >= min_count
 pmi_threshold = -3.0       # これ以下を「後には来ない」候補に
-
-[report]
-heatmap = true             # false で品詞遷移行列の heatmap を省略
 
 [progress]
 log_interval = 30          # 非TTY時の行ログ間隔(秒)
@@ -99,7 +90,7 @@ log_interval = 30          # 非TTY時の行ログ間隔(秒)
 
 自己完結型 HTML 1 ファイル。セクションはタブで切り替え(URL ハッシュで直接リンク可)。
 表はクリックでソート、テキストフィルタ付き。
-構成: 1. コーパス概要 / 2. 品詞頻度(大・細分類) / 3. 品詞遷移確率行列(heatmap + 表) /
+構成: 1. コーパス概要 / 2. 品詞頻度(大・細分類) / 3. 品詞遷移確率行列(セル背景の濃淡付き表) /
 4. 品詞3-gram / 5. 活用形分布 / 6. 品詞ごとの頭尾カナ / 7. 記号前後統計 /
 8. 文節統計(境界カナ・文節長(表層/カナ)・文節内/境界跨ぎカナ2-gram/3-gram・文節頭品詞遷移) /
 9. 係り受けラベル頻度 / 10. 「絶対来ない」ペア(PMI 下位) /
