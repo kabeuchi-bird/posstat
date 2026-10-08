@@ -84,6 +84,7 @@ _STAGE2_NOTE = "<p class=\"note\">Stage 2(GiNZA)が実行されていません�
 
 
 def _limit_note(counter: Counter) -> str:
+    """表の掲載件数を上位に絞った場合の注記 HTML(絞らない場合は空文字)。"""
     if len(counter) <= _TABLE_ROW_LIMIT:
         return ""
     return (f"<p class=\"note\">上位 {_TABLE_ROW_LIMIT} 件のみ表示"
@@ -393,6 +394,16 @@ def render(
                          "文字数は空白・記号を除く表層文字数。</p>")
             parts.append(_table(["文字数", "文節(表層)", "トークン内訳"],
                                 list(ginza.long_bunsetsu), "t-blong"))
+        parts.append("<h3>文節付属部頻度(連結カナ)</h3>")
+        parts.append("<p class=\"note\">付属部 = 文節末尾に連続する「繋ぎの語」"
+                     "(判定ルールはセクション 11 と同じ)。文節先頭トークンは常に自立部とし、"
+                     "「しかし」「この」のような繋ぎ語単独の文節や「それが」の「それ」は"
+                     "付属部に数えない。付属部を持たない文節は分母に含まない。</p>")
+        parts.append(_limit_note(ginza.bunsetsu_suffix_freq))
+        suffix_rows = [[k, len(k), c, r] for [k, c, r]
+                       in _counter_rows(ginza.bunsetsu_suffix_freq, limit=_TABLE_ROW_LIMIT)]
+        parts.append(_table(["付属部(カナ)", "文字数", "頻度", "比率"],
+                            suffix_rows, "t-bsuffix"))
         parts.append("<h3>文節内カナ2-gram(上位)</h3>")
         parts.append(_table(["カナ1", "カナ2", "頻度", "比率"],
                             _counter_rows(ginza.kana_bigram_within_bunsetsu), "t-bwithin"))

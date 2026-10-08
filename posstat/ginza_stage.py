@@ -128,6 +128,12 @@ class GinzaStats:
     kana_trigram_within_content: Counter = field(default_factory=Counter)
     kana_bigram_cross_chunk: Counter = field(default_factory=Counter)
     kana_trigram_cross_chunk: Counter = field(default_factory=Counter)
+    # 6. 文節の付属部(文節末尾に連続する繋ぎ語、ただし文節先頭トークンは含めない)の
+    #    連結カナ頻度。付属部を持たない文節は数えない
+    bunsetsu_suffix_freq: Counter = field(default_factory=Counter)
+    # 7. 文節そのものの頻度。collect_bunsetsu 指定時のみ収集する(異なり数が多くメモリを食うため)。
+    #    キーは文節内トークン(句読点・記号・空白を除く)の ((表層, 読み, 繋ぎ判定), ...)
+    bunsetsu_freq: Counter = field(default_factory=Counter)
 
 
 # 二重鉤括弧は GiNZA の文節境界認識を乱し、述語まで巻き込んだ長大な1文節に
@@ -188,10 +194,10 @@ def _token_kana(token) -> str:
     return clean_kana(hira_to_kata(token.text))
 
 
-def _sent_chunks(sent, kanas: Sequence[str]) -> list:
+def _sent_chunks(sent, kanas: Sequence[str], flags: Sequence[bool]) -> list:
     """文を「繋ぎ」/「内容」チャンクの列に分割する。
 
-    kanas は sent の各トークンの読み(文先頭からの位置で対応)。
+    kanas / flags は sent の各トークンの読みと繋ぎ判定(文先頭からの位置で対応)。
     連続する同種トークンを膠着させて1塊とし、(種別, 連結カナ) のリストを返す。
     句読点・記号・空白はチャンク境界として働き、どちらの塊にも含めない。
     """
@@ -204,7 +210,7 @@ def _sent_chunks(sent, kanas: Sequence[str]) -> list:
                 chunks.append((cur_type, cur_kana))
             cur_type, cur_kana = None, ""
             continue
-        typ = "tsunagi" if is_tsunagi(token) else "content"
+        typ = "tsunagi" if flags[token.i - sent.start] else "content"
         if typ != cur_type:
             if cur_type is not None and cur_kana:
                 chunks.append((cur_type, cur_kana))
@@ -218,7 +224,7 @@ def _sent_chunks(sent, kanas: Sequence[str]) -> list:
 _MASK_CHAR = "□"  # □
 
 
-def _masked_line(sent, kanas: Sequence[str]) -> str:
+def _masked_line(sent, kanas: Sequence[str], flags: Sequence[bool]) -> str:
     """文を「繋ぎの語はカナ、それ以外は□で潰す」1行のテキストに変換する。
 
     句読点・記号・空白はチャンク境界だが、可読性のため原文のまま残す。
@@ -228,14 +234,28 @@ def _masked_line(sent, kanas: Sequence[str]) -> str:
         if token.pos_ in _CHUNK_BOUNDARY_POS:
             parts.append(token.text)
             continue
-        kana = kanas[token.i - sent.start]
-        parts.append(kana if is_tsunagi(token) else _MASK_CHAR * len(kana))
+        idx = token.i - sent.start
+        kana = kanas[idx]
+        parts.append(kana if flags[idx] else _MASK_CHAR * len(kana))
     return "".join(parts)
 
 
 def _strip_space(text: str) -> str:
     """トークン表層から空白類を落とす(「test case」等の内部空白対策)。"""
     return "".join(c for c in text if not c.isspace())
+
+
+def suffix_start(flags: Sequence[bool]) -> int:
+    """文節内トークンの繋ぎ判定列から、付属部の開始位置を返す。
+
+    付属部 = 文節末尾から連続する繋ぎ語。ただし文節先頭トークンは常に自立部とする
+    (「しかし」「この」のような繋ぎ語単独の文節や、「それが」の「それ」を
+    付属部に数えないため)。付属部が無ければ len(flags) を返す。
+    """
+    i = len(flags)
+    while i > 1 and flags[i - 1]:
+        i -= 1
+    return i
 
 
 def _cross_ngrams(stats_bigram: Counter, stats_trigram: Counter, r: str, s: str) -> None:
@@ -253,13 +273,19 @@ def _accumulate(
     bunsetu_spans,
     on_masked_line: Optional[Callable[[str], None]] = None,
     collect_long: int = 0,
+    collect_bunsetsu: bool = False,
 ) -> None:
+    """1 Doc 分の文節・係り受け・繋ぎチャンク統計を stats に積む。
+
+    collect_bunsetsu が真なら文節そのものの頻度(bunsetsu_freq)も収集する。
+    """
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
             head = token.head
             stats.dep_pos_pairs[(token.dep_, token.pos_, head.pos_)] += 1
         kanas = [_token_kana(t) for t in sent]  # 読みの導出は1トークン1回
+        flags = [is_tsunagi(t) for t in sent]  # 繋ぎ判定も1トークン1回
         spans = bunsetu_spans(sent)
         stats.n_bunsetsu += len(spans)
         readings = []
@@ -283,9 +309,19 @@ def _accumulate(
                     elif item > stats.long_bunsetsu[0]:
                         heapq.heappushpop(stats.long_bunsetsu, item)
             head_pos_seq.append(span[0].pos_)
-            kana = "".join(kanas[t.i - sent.start] for t in span
-                          if t.pos_ not in _CHUNK_BOUNDARY_POS)
+            core = [t.i - sent.start for t in span if t.pos_ not in _CHUNK_BOUNDARY_POS]
+            kana = "".join(kanas[i] for i in core)
             readings.append(kana)
+            if core:
+                core_flags = [flags[i] for i in core]
+                sfx = suffix_start(core_flags)
+                suffix_kana = "".join(kanas[i] for i in core[sfx:])
+                if suffix_kana:
+                    stats.bunsetsu_suffix_freq[suffix_kana] += 1
+                if collect_bunsetsu:
+                    key = tuple((sent[i].text, kanas[i], f)
+                                for i, f in zip(core, core_flags))
+                    stats.bunsetsu_freq[key] += 1
             if kana:
                 stats.bunsetsu_kana_len_dist[len(kana)] += 1
                 stats.bunsetsu_head_kana[kana[0]] += 1
@@ -299,7 +335,7 @@ def _accumulate(
         add_ngrams(head_pos_seq, stats.bunsetsu_head_pos_transition)
 
         # 「繋ぎの語」チャンク統計
-        chunks = _sent_chunks(sent, kanas)
+        chunks = _sent_chunks(sent, kanas, flags)
         for typ, kana in chunks:
             if typ == "tsunagi":
                 stats.tsunagi_chunk_freq[kana] += 1
@@ -313,7 +349,7 @@ def _accumulate(
                           stats.kana_trigram_cross_chunk, r, s)
 
         if on_masked_line is not None:
-            on_masked_line(_masked_line(sent, kanas))
+            on_masked_line(_masked_line(sent, kanas, flags))
 
 
 def run(
@@ -324,6 +360,7 @@ def run(
     on_progress: Optional[Callable[[int], None]] = None,
     on_masked_line: Optional[Callable[[str], None]] = None,
     collect_long: int = 0,
+    collect_bunsetsu: bool = False,
 ) -> GinzaStats:
     """全文を GiNZA で解析して GinzaStats を返す。
 
@@ -332,6 +369,7 @@ def run(
     「繋ぎの語」チャンクをカナ表記・それ以外を□で潰した1行を渡す。
     collect_long > 0 なら診断用に最長文節の実例 上位 collect_long 件を
     long_bunsetsu(文字数降順)に収集する。
+    collect_bunsetsu が真なら文節そのものの頻度を bunsetsu_freq に収集する。
     入力は解析前に『』→「」へ正規化する(normalize_quotes_for_parse 参照)。
     """
     try:
@@ -371,7 +409,7 @@ def run(
     try:
         for doc in nlp.pipe(parse_input, batch_size=batch_size, n_process=nproc):
             _accumulate(stats, doc, bunsetu_spans, on_masked_line=on_masked_line,
-                        collect_long=collect_long)
+                        collect_long=collect_long, collect_bunsetsu=collect_bunsetsu)
             if on_progress:
                 on_progress(1)
     except (BrokenPipeError, EOFError) as e:
