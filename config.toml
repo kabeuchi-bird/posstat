@@ -15,5 +15,8 @@ pmi_threshold = -3.0       # これ以下を「後には来ない」候補に
 [report]
 heatmap = true             # false で品詞遷移行列の heatmap を省略
 
+[bunsetsu_freq]
+min_count = 1              # --bunsetsu-freq の出力下限頻度(1 = 全量)
+
 [progress]
 log_interval = 30          # 非TTY時の行ログ間隔(秒)

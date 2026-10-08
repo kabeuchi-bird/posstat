@@ -25,6 +25,7 @@ DEFAULT_CONFIG: Dict = {
     "ginza": {"model": "ja_ginza", "batch_size": 128, "n_process": 0},
     "analysis": {"min_count": 10, "pmi_threshold": -3.0},
     "report": {"heatmap": True},
+    "bunsetsu_freq": {"min_count": 1},
     "progress": {"log_interval": 30},
 }
 
@@ -65,6 +66,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="診断用に最長文節の実例 上位N件を収集し、レポートの文節統計に掲載"
              "(既定: 0=無効)",
     )
+    ap.add_argument(
+        "--bunsetsu-freq", action="store_true",
+        help="文節そのものの頻度を output/bunsetsu_kana_freq.tsv(読み単位)と"
+             " output/bunsetsu_tokens.jsonl(表層込みトークン列単位)に出力"
+             "(Stage 2 実行時のみ。下限頻度は config の [bunsetsu_freq] min_count)",
+    )
     ap.add_argument("--version", action="version", version=f"posstat {__version__}")
     return ap.parse_args(argv)
 
@@ -90,7 +97,8 @@ def run(args: argparse.Namespace) -> int:
         t0 = rep.add_task("Stage 0: 読込・文分割", total=total_bytes)
         t1 = rep.add_task("Stage 1: 形態素解析", total=None, start=False)
         t2 = rep.add_task("Stage 2: 文節・係り受け", total=None, start=False)
-        t3 = rep.add_task("集計・レポート生成", total=4, start=False)
+        t3 = rep.add_task("集計・レポート生成", total=5 if args.bunsetsu_freq else 4,
+                          start=False)
 
         sentences, total_chars, n_read = load_corpus(
             files,
@@ -140,6 +148,7 @@ def run(args: argparse.Namespace) -> int:
                 on_masked_line=(lambda line: tsunagi_file.write(line + "\n"))
                 if tsunagi_file else None,
                 collect_long=args.long_bunsetsu,
+                collect_bunsetsu=args.bunsetsu_freq,
             )
             rep.finish(t2)
         except ImportError as e:
@@ -177,11 +186,20 @@ def run(args: argparse.Namespace) -> int:
         rep.advance(t3)
         html_path = report_html.write_html(html_text, out_dir)
         rep.advance(t3)
+        bunsetsu_paths = ()
+        if args.bunsetsu_freq:
+            bunsetsu_paths = export.write_bunsetsu_freq(
+                ginza.bunsetsu_freq, out_dir,
+                min_count=int(cfg["bunsetsu_freq"]["min_count"]),
+            )
+            rep.advance(t3)
         rep.finish(t3)
 
     msg = f"完了: {html_path} / {json_path}"
     if args.dump_tsunagi_text:
         msg += f" / {out_dir / 'tsunagi_masked.txt'}"
+    for path in bunsetsu_paths:
+        msg += f" / {path}"
     print(msg, file=sys.stderr)
     return 0
 

@@ -52,6 +52,9 @@ python -m posstat CORPUS_PATH [-c config.toml] [-o output/]
   `output/tsunagi_masked.txt` に文単位で出力(Stage 2 実行時のみ)。判定ルールの目視確認用
 - `--long-bunsetsu N`: 診断用に最長文節の実例 上位 N 件(表層とトークン内訳)を収集し、
   レポートの文節統計セクションに掲載(既定: 無効)。異常に長い文節の原因調査用
+- `--bunsetsu-freq`: 文節そのものの頻度を `output/bunsetsu_kana_freq.tsv` と
+  `output/bunsetsu_tokens.jsonl` に出力(Stage 2 実行時のみ)。配列ごとの文節単位評価用。
+  文節の異なり数は数百万に達するため、大規模コーパスではメモリ使用量が増える
 
 文節長は 2 種類を集計します。**表層文字数**は空白・記号(PUNCT/SYM/SPACE)と
 トークン内部の空白を除いた文字数(文節内カナ n-gram と同じ基準)。**カナ文字数**は
@@ -89,6 +92,9 @@ pmi_threshold = -3.0       # これ以下を「後には来ない」候補に
 [report]
 heatmap = true             # false で品詞遷移行列の heatmap を省略
 
+[bunsetsu_freq]
+min_count = 1              # --bunsetsu-freq の出力下限頻度(1 = 全量)
+
 [progress]
 log_interval = 30          # 非TTY時の行ログ間隔(秒)
 ```
@@ -101,7 +107,7 @@ log_interval = 30          # 非TTY時の行ログ間隔(秒)
 表はクリックでソート、テキストフィルタ付き。
 構成: 1. コーパス概要 / 2. 品詞頻度(大・細分類) / 3. 品詞遷移確率行列(heatmap + 表) /
 4. 品詞3-gram / 5. 活用形分布 / 6. 品詞ごとの頭尾カナ / 7. 記号前後統計 /
-8. 文節統計(境界カナ・文節長(表層/カナ)・文節内/境界跨ぎカナ2-gram/3-gram・文節頭品詞遷移) /
+8. 文節統計(境界カナ・文節長(表層/カナ)・付属部頻度・文節内/境界跨ぎカナ2-gram/3-gram・文節頭品詞遷移) /
 9. 係り受けラベル頻度 / 10. 「絶対来ない」ペア(PMI 下位) /
 11. 「繋ぎの語」チャンク分析
 
@@ -136,7 +142,8 @@ Rust 側から serde で読む前提の構造:
   "kana_bigram_within_content": {},
   "kana_trigram_within_content": {},
   "kana_bigram_cross_chunk": {},
-  "kana_trigram_cross_chunk": {}
+  "kana_trigram_cross_chunk": {},
+  "bunsetsu_suffix_freq": {"ヲ": 0.08}
 }
 ```
 
@@ -145,6 +152,37 @@ Rust 側から serde で読む前提の構造:
   `cross_chunk` はチャンク境界跨ぎの連接
 - 境界跨ぎ 3-gram は「前尻2+後頭1」「前尻1+後頭2」の両方を数える
 - `forbidden_pairs` の `pmi` は観測ゼロのとき `null`(Rust 側は `Option<f64>`)
+- `bunsetsu_suffix_freq` は文節付属部の連結カナ分布(付属部の定義は下記)。
+  付属部を持たない文節は分母に含まない
+
+### 文節頻度(`--bunsetsu-freq`)
+
+文節単位で配列の打ちやすさを評価するための頻度表。句読点・記号・空白は除いた
+トークン列を 1 文節とする。
+
+**付属部**は文節末尾に連続する「繋ぎの語」(判定は `is_tsunagi()`、セクション 11 と同じ)。
+文節先頭トークンは常に**自立部**とし、「しかし」「この」のような繋ぎ語単独の文節や、
+「それが」の「それ」は付属部に数えない。
+
+- `bunsetsu_kana_freq.tsv` — 読み単位。列は `reading` / `content`(自立部) /
+  `suffix`(付属部) / `count`。同じ読みでも自立部/付属部の切れ目が違えば別行。
+  読みが空の文節は除く
+
+  ```text
+  reading	content	suffix	count
+  コトガ	コト	ガ	1234
+  ```
+
+- `bunsetsu_tokens.jsonl` — 表層(漢字)込みのトークン列単位。1 行 1 文節。
+  `tokens` は `[表層, 読み, 繋ぎ判定]`、`suffix_start` は付属部の開始位置
+  (`tokens` の長さと等しければ付属部なし)。漢直配列やハイブリッド入力の評価用
+
+  ```json
+  {"count": 12, "reading": "ニホンゴヲ", "suffix_start": 1, "tokens": [["日本語", "ニホンゴ", false], ["を", "ヲ", true]]}
+  ```
+
+どちらも頻度降順で、`[bunsetsu_freq] min_count` 未満は出力しない。
+TSV は読み単位で集約してから切るため、JSONL を読みで合算した値とは裾の扱いが異なる。
 
 ## モジュール構成
 
