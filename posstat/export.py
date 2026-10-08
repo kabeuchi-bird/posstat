@@ -111,6 +111,7 @@ def build_stats(
 
 
 def write_json(stats: Dict, out_dir: Path) -> Path:
+    """stats を out_dir/stats.json に書き出し、そのパスを返す。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "stats.json"
     with path.open("w", encoding="utf-8") as f:

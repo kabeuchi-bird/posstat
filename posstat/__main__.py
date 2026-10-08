@@ -47,6 +47,7 @@ def load_config(path: str | None) -> Dict:
 
 
 def parse_args(argv=None) -> argparse.Namespace:
+    """コマンドライン引数を解析する。"""
     ap = argparse.ArgumentParser(
         prog="posstat",
         description="日本語コーパスの品詞・カナ・文節統計を集計し、HTMLレポートとJSONを出力する",
@@ -77,6 +78,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace) -> int:
+    """Stage 0〜2 と集計・出力を実行し、exit code を返す。"""
     cfg = load_config(args.config)
     log_interval = args.log_interval or cfg["progress"]["log_interval"]
     out_dir = Path(args.output)
@@ -205,6 +207,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv=None) -> int:
+    """CLI エントリポイント。"""
     return run(parse_args(argv))
 
 

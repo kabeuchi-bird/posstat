@@ -84,6 +84,7 @@ _STAGE2_NOTE = "<p class=\"note\">Stage 2(GiNZA)が実行されていません�
 
 
 def _limit_note(counter: Counter) -> str:
+    """表の掲載件数を上位に絞った場合の注記 HTML(絞らない場合は空文字)。"""
     if len(counter) <= _TABLE_ROW_LIMIT:
         return ""
     return (f"<p class=\"note\">上位 {_TABLE_ROW_LIMIT} 件のみ表示"

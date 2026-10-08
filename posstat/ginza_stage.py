@@ -275,6 +275,10 @@ def _accumulate(
     collect_long: int = 0,
     collect_bunsetsu: bool = False,
 ) -> None:
+    """1 Doc 分の文節・係り受け・繋ぎチャンク統計を stats に積む。
+
+    collect_bunsetsu が真なら文節そのものの頻度(bunsetsu_freq)も収集する。
+    """
     for sent in doc.sents:
         stats.n_sentences += 1
         for token in sent:
@@ -315,7 +319,7 @@ def _accumulate(
                 if suffix_kana:
                     stats.bunsetsu_suffix_freq[suffix_kana] += 1
                 if collect_bunsetsu:
-                    key = tuple((_strip_space(sent[i].text), kanas[i], f)
+                    key = tuple((sent[i].text, kanas[i], f)
                                 for i, f in zip(core, core_flags))
                     stats.bunsetsu_freq[key] += 1
             if kana:
